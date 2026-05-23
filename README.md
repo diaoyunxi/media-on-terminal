@@ -16,11 +16,7 @@
 
 ### 一键安装
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/diaoyunxi/media-on-terminal/main/install.sh | bash
-```
-
-或下载后运行：
+下载后运行：
 
 ```bash
 chmod +x install.sh
@@ -38,6 +34,7 @@ pip install pygame
    - **macOS**: `brew install ffmpeg`
    - **Ubuntu/Debian**: `sudo apt install ffmpeg`
    - **Arch**: `sudo pacman -S ffmpeg`
+4. 将mp.py加入系统目录
 
 ## 📖 使用方法
 
