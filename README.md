@@ -1,13 +1,15 @@
 # media-on-terminal
-# mp - Terminal Audio Player
+# mp - Terminal Media Player
 
-一个轻量级的终端音频播放器，支持多种音频格式，可在终端中直接播放音乐。
+一个轻量级的终端媒体播放器，支持多种音频和视频格式，可在终端中直接播放音乐和视频。
 
 ## ✨ 特性
 
 - 🎵 支持多种音频格式：MP3、WAV、OGG、M4A、FLAC、AAC、OPUS 等
+- 🎬 支持多种视频格式：MP4、MKV、AVI、MOV、WEBM 等
 - 🖥️ 终端内播放，无需图形界面
-- 📊 实时显示播放进度条
+- 📊 音频播放实时显示进度条
+- 🎥 视频播放使用 ASCII 字符渲染画面
 - 🎮 快捷键控制播放
 - 📦 自动安装依赖（ffmpeg 和 pygame）
 - 🔧 跨平台支持（Linux / macOS）
