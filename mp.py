@@ -294,6 +294,243 @@ class MediaInfo:
         print(f"{'='*60}\n")
 
 
+class BookmarkManager:
+    """书签管理 - 保存和恢复播放位置"""
+    
+    BOOKMARK_FILE = CONFIG_DIR / 'bookmarks.json'
+    
+    def __init__(self):
+        self.bookmarks: Dict[str, float] = {}
+        self.load()
+    
+    def load(self):
+        """加载书签"""
+        try:
+            if self.BOOKMARK_FILE.exists():
+                with open(self.BOOKMARK_FILE, 'r', encoding='utf-8') as f:
+                    self.bookmarks = json.load(f)
+        except Exception:
+            self.bookmarks = {}
+    
+    def save(self):
+        """保存书签"""
+        try:
+            CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+            with open(self.BOOKMARK_FILE, 'w', encoding='utf-8') as f:
+                json.dump(self.bookmarks, f, indent=2)
+        except Exception:
+            pass
+    
+    def get_position(self, file_path: Path) -> float:
+        """获取文件的书签位置（秒）"""
+        key = str(file_path.resolve())
+        return self.bookmarks.get(key, 0.0)
+    
+    def set_position(self, file_path: Path, position: float):
+        """设置文件的书签位置（秒）"""
+        key = str(file_path.resolve())
+        if position > 5:  # 只保存超过5秒的位置
+            self.bookmarks[key] = position
+            self.save()
+    
+    def clear_position(self, file_path: Path):
+        """清除文件的书签"""
+        key = str(file_path.resolve())
+        if key in self.bookmarks:
+            del self.bookmarks[key]
+            self.save()
+    
+    def has_position(self, file_path: Path) -> bool:
+        """检查文件是否有书签"""
+        key = str(file_path.resolve())
+        return key in self.bookmarks and self.bookmarks[key] > 5
+
+
+class LyricsDisplay:
+    """歌词显示类"""
+    
+    def __init__(self, file_path: Path):
+        self.file_path = file_path
+        self.lyrics: List[tuple] = []  # (时间戳, 歌词内容)
+        self.current_index = -1
+        self.offset = 0.0  # 歌词时间偏移（秒）
+        self.enabled = True
+        self.load_lyrics()
+    
+    def load_lyrics(self):
+        """加载歌词文件"""
+        # 尝试查找同名 .lrc 文件
+        lrc_path = self.file_path.with_suffix('.lrc')
+        
+        # 也尝试在同级目录查找
+        if not lrc_path.exists():
+            for ext in ['.lrc', '.txt']:
+                potential = self.file_path.parent / (self.file_path.stem + ext)
+                if potential.exists():
+                    lrc_path = potential
+                    break
+        
+        if not lrc_path.exists():
+            self.lyrics = []
+            return
+        
+        try:
+            with open(lrc_path, 'r', encoding='utf-8') as f:
+                self._parse_lrc(f.read())
+        except Exception:
+            self.lyrics = []
+    
+    def _parse_lrc(self, content: str):
+        """解析LRC格式歌词"""
+        self.lyrics = []
+        
+        for line in content.split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+            
+            # 解析时间标签 [mm:ss.xx] 或 [mm:ss:xx]
+            import re
+            time_tags = re.findall(r'\[(\d{2}):(\d{2})([.:])(\d{2})\](.*)', line)
+            
+            if time_tags:
+                for tag in time_tags:
+                    minutes = int(tag[0])
+                    seconds = int(tag[1])
+                    ms = int(tag[3]) / 100.0 if tag[2] == '.' else int(tag[3])
+                    text = tag[4].strip()
+                    
+                    if text:
+                        timestamp = minutes * 60 + seconds + ms
+                        self.lyrics.append((timestamp, text))
+            
+            # 解析偏移标签 [offset:ms]
+            offset_match = re.search(r'\[offset:([+-]?\d+)\]', line)
+            if offset_match:
+                self.offset = int(offset_match.group(1)) / 1000.0
+        
+        # 按时间排序
+        self.lyrics.sort(key=lambda x: x[0])
+    
+    def get_lyrics_at_time(self, current_time: float) -> tuple:
+        """获取当前时间对应的歌词和下一句"""
+        adjusted_time = current_time + self.offset
+        
+        # 找到当前歌词索引
+        new_index = -1
+        for i, (timestamp, _) in enumerate(self.lyrics):
+            if timestamp <= adjusted_time:
+                new_index = i
+        
+        self.current_index = new_index
+        
+        if new_index >= 0 and new_index < len(self.lyrics):
+            current = self.lyrics[new_index][1]
+            next_line = self.lyrics[new_index + 1][1] if new_index + 1 < len(self.lyrics) else ''
+            return current, next_line
+        
+        return '', ''
+    
+    def display_current(self, current_time: float, terminal_width: int = 80):
+        """显示当前歌词"""
+        if not self.enabled or not self.lyrics:
+            return
+        
+        current, next_line = self.get_lyrics_at_time(current_time)
+        
+        if current:
+            # 居中显示当前歌词
+            padding = max(0, (terminal_width - len(current)) // 2)
+            print(f"\r{' ' * padding}{current}", end='', flush=True)
+        
+        if next_line:
+            next_padding = max(0, (terminal_width - len(next_line)) // 2)
+            print(f"\r{' ' * next_padding}{next_line}", end='', flush=True)
+
+
+class AudioVisualizer:
+    """音频可视化器 - 在终端显示音频频谱"""
+    
+    # ASCII 字符从密集到稀疏
+    BLOCK_CHARS = ' ▏▎▍▌▋▊▉█'
+    
+    def __init__(self, width: int = 60, height: int = 10):
+        self.width = width
+        self.height = height
+        self.fft_data: List[float] = [0.0] * width
+        self.smoothing: List[float] = [0.0] * width
+        self.smooth_factor = 0.3
+    
+    def update(self, samples: bytes):
+        """更新频谱数据（从PCM样本计算）"""
+        try:
+            import struct
+            
+            if len(samples) < 256:
+                return
+            
+            # 简化频谱计算 - 将字节转换为频谱幅度
+            n = len(samples)
+            spectrum = [0.0] * self.width
+            
+            # 将样本分成多个频段
+            step = n // (self.width * 4)
+            if step < 1:
+                step = 1
+            
+            for i in range(self.width):
+                start = i * step * 4
+                end = min(start + step * 4, n)
+                if start < n:
+                    # 计算该频段的均方根值
+                    total = 0
+                    count = 0
+                    for j in range(start, end, 2):
+                        if j + 1 < n:
+                            # 16位样本
+                            sample = struct.unpack('<h', samples[j:j+2])[0] if j + 2 <= len(samples) else 0
+                            total += sample * sample
+                            count += 1
+                    
+                    if count > 0:
+                        rms = (total / count) ** 0.5
+                        # 归一化到0-1
+                        normalized = min(1.0, rms / 8000)
+                        spectrum[i] = normalized
+            
+            # 平滑过渡
+            for i in range(self.width):
+                self.smoothing[i] = self.smoothing[i] * (1 - self.smooth_factor) + spectrum[i] * self.smooth_factor
+            
+            self.fft_data = self.smoothing.copy()
+            
+        except Exception:
+            pass
+    
+    def render(self) -> str:
+        """渲染可视化条形图"""
+        lines = []
+        
+        for y in range(self.height - 1, -1, -1):
+            line = ''
+            threshold = y / self.height
+            
+            for i in range(self.width):
+                value = self.fft_data[i] if i < len(self.fft_data) else 0
+                
+                if value >= threshold:
+                    # 根据强度选择字符
+                    intensity = int((value - threshold) / (1 - threshold + 0.01) * (len(self.BLOCK_CHARS) - 1))
+                    intensity = max(0, min(len(self.BLOCK_CHARS) - 1, intensity))
+                    line += self.BLOCK_CHARS[intensity]
+                else:
+                    line += ' '
+            
+            lines.append(line)
+        
+        return '\n'.join(lines)
+
+
 class Playlist:
     """播放列表类"""
     
@@ -461,6 +698,7 @@ class AudioPlayer:
             sys.exit(1)
         
         self.config = config
+        self.bookmark_manager = BookmarkManager()
         
         # 导入 pygame（在依赖检查之后已经导入）
         import pygame
@@ -481,6 +719,12 @@ class AudioPlayer:
         self.volume = config.get('volume', 100)
         self.playback_speed = config.get('playback_speed', 1.0)
         self.loop_mode = config.get('loop_mode', 'none')  # none, single, all
+        
+        # 歌词和可视化器
+        self.lyrics = LyricsDisplay(self.file_path)
+        self.visualizer_enabled = False
+        self.visualizer_width = 60
+        self.visualizer = AudioVisualizer(width=self.visualizer_width, height=8)
         
         self.load_audio()
     
@@ -539,7 +783,7 @@ class AudioPlayer:
         self.process = subprocess.Popen(
             cmd,
             stdout=devnull,
-            stderr=devnull,
+            stderr=subprocess.PIPE,
             stdin=subprocess.DEVNULL
         )
         
@@ -549,6 +793,41 @@ class AudioPlayer:
         
         self.progress_thread = threading.Thread(target=self.update_progress, daemon=True)
         self.progress_thread.start()
+        
+        # 如果启用了可视化器，启动频谱捕获线程
+        if self.visualizer_enabled:
+            self.spectrum_thread = threading.Thread(target=self.capture_spectrum, daemon=True)
+            self.spectrum_thread.start()
+    
+    def capture_spectrum(self):
+        """捕获音频频谱数据"""
+        try:
+            # 使用 ffmpeg 提取原始音频数据用于可视化
+            cmd = [
+                'ffmpeg', '-i', str(self.file_path),
+                '-f', 's16le', '-acodec', 'pcm_s16le',
+                '-ar', '22050', '-ac', '1',
+                '-ss', str(self.current_position / 1000),
+                '-t', '60',  # 每次捕获60秒
+                '-'
+            ]
+            
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL
+            )
+            
+            while self.is_playing and not self.is_paused:
+                data = process.stdout.read(1024 * 10)
+                if not data:
+                    break
+                self.visualizer.update(data)
+                time.sleep(0.03)
+            
+            process.terminate()
+        except Exception:
+            pass
     
     def update_progress(self):
         """更新播放进度"""
@@ -596,8 +875,39 @@ class AudioPlayer:
         elif self.loop_mode == 'all':
             status_parts.append("🔄 列表")
         
+        # 可视化器
+        if self.visualizer_enabled:
+            status_parts.append("📊 可视化")
+        
+        # 歌词
+        if self.lyrics.enabled and self.lyrics.lyrics:
+            status_parts.append("📝 歌词")
+        
         status = " | ".join(status_parts)
+        
+        # 获取终端宽度
+        try:
+            term_width = os.get_terminal_size().columns
+        except:
+            term_width = 80
+        
         print(f"\r{status} |{bar}| {current_time}/{total_time}", end='', flush=True)
+        
+        # 如果启用可视化器，显示频谱
+        if self.visualizer_enabled:
+            print()
+            viz_lines = self.visualizer.render().split('\n')
+            for line in viz_lines[-4:]:  # 只显示最后4行
+                print(f"  {line}", end='', flush=True)
+                print()  # 换行
+        
+        # 如果有歌词，显示当前行
+        if self.lyrics.enabled and self.lyrics.lyrics:
+            current_time_sec = self.current_position / 1000
+            current_lyric, _ = self.lyrics.get_lyrics_at_time(current_time_sec)
+            if current_lyric:
+                padding = max(0, (term_width - len(current_lyric)) // 2)
+                print(f"\r{' ' * padding}{current_lyric}", end='', flush=True)
     
     def format_time(self, ms):
         """格式化时间显示"""
@@ -670,11 +980,23 @@ class AudioPlayer:
         """主播放循环"""
         print(f"\n播放: {self.file_path.name}")
         print(f"时长: {self.format_time(self.total_duration)}")
+        
+        # 检查书签
+        saved_pos = self.bookmark_manager.get_position(self.file_path)
+        if saved_pos > 5:
+            print(f"📑 发现书签: 从 {self.format_time(saved_pos * 1000)} 恢复? 按 [r] 恢复或按其他键开始")
+        
         print("\n控制:")
         print("  [空格] 暂停/继续  [←/→] 后退/前进10秒  [↑/↓] 音量")
-        print("  [</>] 播放速度  [l] 循环模式  [i] 媒体信息  [q/Ctrl+C] 退出\n")
+        print("  [</>] 播放速度  [l] 循环模式  [i] 媒体信息")
+        print("  [v] 可视化器  [b] 保存书签  [r] 恢复书签  [o] 歌词")
+        print("  [q/Ctrl+C] 退出\n")
         
-        self.play_from_position(0)
+        # 等待用户决定是否恢复书签
+        if saved_pos > 5:
+            self._wait_for_resume_key(saved_pos)
+        else:
+            self.play_from_position(0)
         
         # 控制监听
         try:
@@ -686,12 +1008,29 @@ class AudioPlayer:
                         if key == b' ':
                             self.pause()
                         elif key == b'q' or key == b'Q':
+                            self.bookmark_manager.set_position(self.file_path, self.current_position / 1000)
                             break
                         elif key == b'i' or key == b'I':
                             info = MediaInfo.get_info(self.file_path)
                             MediaInfo.display_info(info)
                         elif key == b'l' or key == b'L':
                             self.toggle_loop()
+                        elif key == b'v' or key == b'V':
+                            self.visualizer_enabled = not self.visualizer_enabled
+                            if self.visualizer_enabled and not self.is_paused:
+                                self.spectrum_thread = threading.Thread(target=self.capture_spectrum, daemon=True)
+                                self.spectrum_thread.start()
+                        elif key == b'b' or key == b'B':
+                            self.bookmark_manager.set_position(self.file_path, self.current_position / 1000)
+                            print(f"\n书签已保存: {self.format_time(self.current_position)}")
+                        elif key == b'r' or key == b'R':
+                            saved = self.bookmark_manager.get_position(self.file_path)
+                            if saved > 0:
+                                self.play_from_position(saved)
+                                print(f"\n已从书签恢复: {self.format_time(saved * 1000)}")
+                        elif key == b'o' or key == b'O':
+                            self.lyrics.enabled = not self.lyrics.enabled
+                            print(f"\n歌词: {'开启' if self.lyrics.enabled else '关闭'}")
                         elif key == b'\xe0':
                             key2 = msvcrt.getch()
                             if key2 == b'K':
@@ -733,6 +1072,7 @@ class AudioPlayer:
                                     elif ch3 == 'B':
                                         self.set_volume(-5)
                             elif ch in ('q', 'Q', '\x03'):
+                                self.bookmark_manager.set_position(self.file_path, self.current_position / 1000)
                                 break
                             elif ch in ('i', 'I'):
                                 info = MediaInfo.get_info(self.file_path)
@@ -743,6 +1083,22 @@ class AudioPlayer:
                                 self.set_speed(self.playback_speed - 0.1)
                             elif ch in ('.', '>'):
                                 self.set_speed(self.playback_speed + 0.1)
+                            elif ch in ('v', 'V'):
+                                self.visualizer_enabled = not self.visualizer_enabled
+                                if self.visualizer_enabled and not self.is_paused:
+                                    self.spectrum_thread = threading.Thread(target=self.capture_spectrum, daemon=True)
+                                    self.spectrum_thread.start()
+                            elif ch in ('b', 'B'):
+                                self.bookmark_manager.set_position(self.file_path, self.current_position / 1000)
+                                print(f"\n书签已保存: {self.format_time(self.current_position)}")
+                            elif ch in ('r', 'R'):
+                                saved = self.bookmark_manager.get_position(self.file_path)
+                                if saved > 0:
+                                    self.play_from_position(saved)
+                                    print(f"\n已从书签恢复: {self.format_time(saved * 1000)}")
+                            elif ch in ('o', 'O'):
+                                self.lyrics.enabled = not self.lyrics.enabled
+                                print(f"\n歌词: {'开启' if self.lyrics.enabled else '关闭'}")
                 finally:
                     termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
         except Exception as e:
@@ -750,6 +1106,41 @@ class AudioPlayer:
         
         self.stop()
         print("\n播放结束")
+    
+    def _wait_for_resume_key(self, saved_pos):
+        """等待用户按键决定是否恢复书签"""
+        try:
+            if platform.system() == "Windows":
+                import msvcrt
+                if msvcrt.kbhit():
+                    key = msvcrt.getch()
+                    if key == b'r' or key == b'R':
+                        self.play_from_position(saved_pos)
+                        print(f"\n已从书签恢复: {self.format_time(saved_pos * 1000)}")
+                        return
+            else:
+                import select
+                import termios
+                import tty
+                
+                fd = sys.stdin.fileno()
+                old_settings = termios.tcgetattr(fd)
+                tty.setcbreak(fd)
+                
+                if select.select([sys.stdin], [], [], 2)[0]:  # 2秒超时
+                    ch = sys.stdin.read(1)
+                    if ch in ('r', 'R'):
+                        self.play_from_position(saved_pos)
+                        print(f"\n已从书签恢复: {self.format_time(saved_pos * 1000)}")
+                        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+                        return
+                
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        except:
+            pass
+        
+        # 超时或按其他键，正常开始播放
+        self.play_from_position(0)
 
 
 class VideoPlayer:
@@ -1143,11 +1534,19 @@ def show_help():
     s                   切换随机播放（播放列表模式）
     q 或 Ctrl+C         退出播放
 
+音频增强功能:
+    v                   切换音频可视化器
+    b                   保存当前播放位置为书签
+    r                   从书签恢复播放
+    o                   切换歌词显示（需要同名.lrc文件）
+
 提示:
     • 播放器会自动安装ffmpeg和pygame依赖
     • 视频播放使用ASCII字符渲染，需要支持256色的终端
     • 支持带空格的路径，请使用引号括起来
     • 配置保存在 ~/.config/mp/config.json
+    • 书签保存在 ~/.config/mp/bookmarks.json
+    • 歌词文件需与音频文件同名（.lrc格式）
 """
     print(help_text)
 
