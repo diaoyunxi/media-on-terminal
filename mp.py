@@ -25,6 +25,9 @@ from typing import List, Optional, Dict, Any
 CONFIG_DIR = Path.home() / '.config' / 'mp'
 CONFIG_FILE = CONFIG_DIR / 'config.json'
 PLAYLIST_DIR = CONFIG_DIR / 'playlists'
+FAVORITES_FILE = CONFIG_DIR / 'favorites.json'
+HISTORY_FILE = CONFIG_DIR / 'history.json'
+RADIO_FILE = CONFIG_DIR / 'radio.json'
 
 
 def get_pip_install_args():
@@ -344,6 +347,355 @@ class BookmarkManager:
         """检查文件是否有书签"""
         key = str(file_path.resolve())
         return key in self.bookmarks and self.bookmarks[key] > 5
+
+
+class FavoritesManager:
+    """收藏管理 - 管理喜欢的歌曲"""
+    
+    def __init__(self):
+        self.favorites: List[str] = []
+        self.load()
+    
+    def load(self):
+        """加载收藏列表"""
+        try:
+            if FAVORITES_FILE.exists():
+                with open(FAVORITES_FILE, 'r', encoding='utf-8') as f:
+                    self.favorites = json.load(f)
+        except Exception:
+            self.favorites = []
+    
+    def save(self):
+        """保存收藏列表"""
+        try:
+            CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+            with open(FAVORITES_FILE, 'w', encoding='utf-8') as f:
+                json.dump(self.favorites, f, indent=2)
+        except Exception:
+            pass
+    
+    def add(self, file_path: Path):
+        """添加歌曲到收藏"""
+        key = str(file_path.resolve())
+        if key not in self.favorites:
+            self.favorites.append(key)
+            self.save()
+            return True
+        return False
+    
+    def remove(self, file_path: Path):
+        """从收藏中移除歌曲"""
+        key = str(file_path.resolve())
+        if key in self.favorites:
+            self.favorites.remove(key)
+            self.save()
+            return True
+        return False
+    
+    def is_favorite(self, file_path: Path) -> bool:
+        """检查歌曲是否在收藏中"""
+        key = str(file_path.resolve())
+        return key in self.favorites
+    
+    def toggle(self, file_path: Path) -> bool:
+        """切换收藏状态，返回新的收藏状态"""
+        if self.is_favorite(file_path):
+            self.remove(file_path)
+            return False
+        else:
+            self.add(file_path)
+            return True
+    
+    def get_all(self) -> List[Path]:
+        """获取所有收藏的歌曲路径"""
+        result = []
+        for path_str in self.favorites:
+            path = Path(path_str)
+            if path.exists():
+                result.append(path)
+        return result
+    
+    def display(self):
+        """显示收藏列表"""
+        if not self.favorites:
+            print("\n收藏列表为空")
+            return
+        
+        print(f"\n{'='*60}")
+        print(f"  我的收藏 ({len(self.favorites)} 首)")
+        print(f"{'='*60}")
+        
+        for i, path_str in enumerate(self.favorites):
+            path = Path(path_str)
+            if path.exists():
+                print(f"  {i+1:3d}. {path.name}")
+            else:
+                print(f"  {i+1:3d}. {path.name} (文件不存在)")
+        
+        print(f"{'='*60}\n")
+
+
+class HistoryManager:
+    """历史记录管理 - 记录播放历史"""
+    
+    MAX_HISTORY = 100  # 最多保存100条记录
+    
+    def __init__(self):
+        self.history: List[Dict[str, Any]] = []
+        self.load()
+    
+    def load(self):
+        """加载历史记录"""
+        try:
+            if HISTORY_FILE.exists():
+                with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
+                    self.history = json.load(f)
+        except Exception:
+            self.history = []
+    
+    def save(self):
+        """保存历史记录"""
+        try:
+            CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+            with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
+                json.dump(self.history, f, indent=2)
+        except Exception:
+            pass
+    
+    def add(self, file_path: Path, duration_played: float = 0):
+        """添加播放记录"""
+        record = {
+            'path': str(file_path.resolve()),
+            'name': file_path.name,
+            'timestamp': time.time(),
+            'duration_played': duration_played
+        }
+        
+        # 添加到开头
+        self.history.insert(0, record)
+        
+        # 限制历史记录数量
+        if len(self.history) > self.MAX_HISTORY:
+            self.history = self.history[:self.MAX_HISTORY]
+        
+        self.save()
+    
+    def get_recent(self, count: int = 20) -> List[Dict[str, Any]]:
+        """获取最近的播放记录"""
+        return self.history[:count]
+    
+    def display(self, count: int = 20):
+        """显示历史记录"""
+        recent = self.get_recent(count)
+        
+        if not recent:
+            print("\n播放历史为空")
+            return
+        
+        print(f"\n{'='*60}")
+        print(f"  最近播放 (最近 {len(recent)} 首)")
+        print(f"{'='*60}")
+        
+        for i, record in enumerate(recent):
+            path = Path(record['path'])
+            name = record['name']
+            timestamp = time.localtime(record['timestamp'])
+            time_str = time.strftime('%Y-%m-%d %H:%M', timestamp)
+            
+            exists = "✓" if path.exists() else "✗"
+            print(f"  {exists} {i+1:3d}. {name}")
+            print(f"       播放时间: {time_str}")
+        
+        print(f"{'='*60}\n")
+    
+    def clear(self):
+        """清空历史记录"""
+        self.history = []
+        self.save()
+        print("播放历史已清空")
+
+
+class SleepTimer:
+    """定时停止 - 睡眠定时器"""
+    
+    def __init__(self):
+        self.remaining_time = 0  # 剩余时间（秒）
+        self.is_active = False
+        self.start_time = 0
+        self.callback = None
+    
+    def set(self, minutes: int, callback=None):
+        """设置定时器（分钟）"""
+        self.remaining_time = minutes * 60
+        self.start_time = time.time()
+        self.is_active = True
+        self.callback = callback
+        return self.remaining_time
+    
+    def cancel(self):
+        """取消定时器"""
+        self.is_active = False
+        self.remaining_time = 0
+        self.callback = None
+    
+    def get_remaining(self) -> int:
+        """获取剩余时间（秒）"""
+        if not self.is_active:
+            return 0
+        
+        elapsed = time.time() - self.start_time
+        remaining = max(0, self.remaining_time - elapsed)
+        
+        # 如果时间到了，触发回调
+        if remaining == 0 and self.callback:
+            self.is_active = False
+            self.callback()
+        
+        return int(remaining)
+    
+    def format_remaining(self) -> str:
+        """格式化剩余时间显示"""
+        remaining = self.get_remaining()
+        if remaining == 0:
+            return ""
+        
+        minutes = remaining // 60
+        seconds = remaining % 60
+        return f"⏰ {minutes:02d}:{seconds:02d}"
+
+
+class ABLoop:
+    """AB循环 - 区间循环播放"""
+    
+    def __init__(self):
+        self.point_a = 0.0  # A点位置（秒）
+        self.point_b = 0.0  # B点位置（秒）
+        self.is_active = False
+        self.is_setting_a = True  # 正在设置A点还是B点
+    
+    def set_point_a(self, position: float):
+        """设置A点位置"""
+        self.point_a = position
+        self.is_setting_a = False
+    
+    def set_point_b(self, position: float):
+        """设置B点位置"""
+        self.point_b = position
+        self.is_active = True
+        self.is_setting_a = True
+    
+    def toggle(self):
+        """切换AB循环状态"""
+        if self.is_active:
+            self.deactivate()
+        elif self.point_a > 0 and self.point_b > self.point_a:
+            self.is_active = True
+    
+    def deactivate(self):
+        """停用AB循环"""
+        self.is_active = False
+        self.point_a = 0.0
+        self.point_b = 0.0
+        self.is_setting_a = True
+    
+    def check_position(self, current_position: float) -> Optional[float]:
+        """检查当前位置，如果超出B点则返回A点位置"""
+        if not self.is_active:
+            return None
+        
+        if current_position >= self.point_b:
+            return self.point_a
+        
+        return None
+    
+    def get_status(self) -> str:
+        """获取状态字符串"""
+        if not self.is_active:
+            return ""
+        
+        return f"🔁 AB: {self._format_time(self.point_a)}-{self._format_time(self.point_b)}"
+    
+    def _format_time(self, seconds: float) -> str:
+        """格式化时间"""
+        minutes = int(seconds // 60)
+        secs = int(seconds % 60)
+        return f"{minutes:02d}:{secs:02d}"
+
+
+class RadioManager:
+    """网络电台管理 - 支持在线流媒体播放"""
+    
+    # 预设电台列表
+    DEFAULT_STATIONS = {
+        "经典音乐": "http://stream.rthk.hk/radio/pth",
+        "新闻频道": "http://stream.rthk.hk/radio/news",
+        "流行音乐": "http://stream.rthk.hk/radio/pop",
+        "古典音乐": "http://stream.rthk.hk/radio/classical",
+    }
+    
+    def __init__(self):
+        self.stations: Dict[str, str] = {}
+        self.load()
+    
+    def load(self):
+        """加载电台列表"""
+        try:
+            if RADIO_FILE.exists():
+                with open(RADIO_FILE, 'r', encoding='utf-8') as f:
+                    self.stations = json.load(f)
+            else:
+                # 首次使用，加载默认电台
+                self.stations = self.DEFAULT_STATIONS.copy()
+                self.save()
+        except Exception:
+            self.stations = self.DEFAULT_STATIONS.copy()
+    
+    def save(self):
+        """保存电台列表"""
+        try:
+            CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+            with open(RADIO_FILE, 'w', encoding='utf-8') as f:
+                json.dump(self.stations, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
+    
+    def add_station(self, name: str, url: str):
+        """添加电台"""
+        self.stations[name] = url
+        self.save()
+        print(f"电台已添加: {name}")
+    
+    def remove_station(self, name: str):
+        """删除电台"""
+        if name in self.stations:
+            del self.stations[name]
+            self.save()
+            print(f"电台已删除: {name}")
+            return True
+        print(f"电台不存在: {name}")
+        return False
+    
+    def get_station_url(self, name: str) -> Optional[str]:
+        """获取电台URL"""
+        return self.stations.get(name)
+    
+    def list_stations(self):
+        """显示电台列表"""
+        if not self.stations:
+            print("\n电台列表为空")
+            print("使用 'mp --radio-add <名称> <URL>' 添加电台")
+            return
+        
+        print(f"\n{'='*60}")
+        print(f"  网络电台 ({len(self.stations)} 个)")
+        print(f"{'='*60}")
+        
+        for i, (name, url) in enumerate(self.stations.items()):
+            print(f"  {i+1:3d}. {name}")
+            print(f"       {url}")
+        
+        print(f"{'='*60}\n")
+        print("使用 'mp --radio <名称>' 播放电台")
 
 
 class LyricsDisplay:
@@ -699,6 +1051,10 @@ class AudioPlayer:
         
         self.config = config
         self.bookmark_manager = BookmarkManager()
+        self.favorites_manager = FavoritesManager()
+        self.history_manager = HistoryManager()
+        self.sleep_timer = SleepTimer()
+        self.ab_loop = ABLoop()
         
         # 导入 pygame（在依赖检查之后已经导入）
         import pygame
@@ -875,6 +1231,20 @@ class AudioPlayer:
         elif self.loop_mode == 'all':
             status_parts.append("🔄 列表")
         
+        # AB循环
+        ab_status = self.ab_loop.get_status()
+        if ab_status:
+            status_parts.append(ab_status)
+        
+        # 收藏状态
+        if self.favorites_manager.is_favorite(self.file_path):
+            status_parts.append("❤️")
+        
+        # 定时停止
+        timer_str = self.sleep_timer.format_remaining()
+        if timer_str:
+            status_parts.append(timer_str)
+        
         # 可视化器
         if self.visualizer_enabled:
             status_parts.append("📊 可视化")
@@ -976,33 +1346,103 @@ class AudioPlayer:
             if self.process.poll() is None:
                 self.process.kill()
     
+    def _set_sleep_timer(self):
+        """交互式设置定时停止"""
+        print("\n定时停止: 输入分钟数 (1-180), 0 取消")
+        try:
+            # 临时恢复终端
+            import termios
+            import tty
+            fd = sys.stdin.fileno()
+            old_settings = termios.tcgetattr(fd)
+            tty.setcbreak(fd)
+            try:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            except:
+                pass
+
+            user_input = input("分钟数: ").strip()
+            try:
+                minutes = int(user_input)
+                if minutes == 0:
+                    self.sleep_timer.cancel()
+                    print("定时停止已取消")
+                elif 1 <= minutes <= 180:
+                    def on_timer_end():
+                        self.stop()
+                    self.sleep_timer.set(minutes, callback=on_timer_end)
+                    print(f"定时停止已设置: {minutes} 分钟后停止")
+                else:
+                    print("无效输入")
+            except ValueError:
+                print("无效输入")
+        except Exception:
+            pass
+
+    def _handle_ab_loop(self):
+        """处理AB循环设置"""
+        current_sec = self.current_position / 1000
+        if self.ab_loop.is_setting_a:
+            self.ab_loop.set_point_a(current_sec)
+            print(f"\nAB循环 A点: {self.ab_loop._format_time(current_sec)}")
+            print("移动到B点后按 [a] 设置B点")
+        else:
+            if current_sec > self.ab_loop.point_a:
+                self.ab_loop.set_point_b(current_sec)
+                print(f"\nAB循环 B点: {self.ab_loop._format_time(current_sec)}")
+                print(f"AB循环已激活: {self.ab_loop.get_status()}")
+            else:
+                print("\nB点必须大于A点")
+
     def run(self):
         """主播放循环"""
         print(f"\n播放: {self.file_path.name}")
         print(f"时长: {self.format_time(self.total_duration)}")
-        
+
+        # 记录到播放历史
+        self.history_manager.add(self.file_path)
+
         # 检查书签
         saved_pos = self.bookmark_manager.get_position(self.file_path)
         if saved_pos > 5:
             print(f"📑 发现书签: 从 {self.format_time(saved_pos * 1000)} 恢复? 按 [r] 恢复或按其他键开始")
-        
+
+        # 检查收藏状态
+        fav_status = "❤️ 已收藏" if self.favorites_manager.is_favorite(self.file_path) else ""
+        if fav_status:
+            print(fav_status)
+
         print("\n控制:")
         print("  [空格] 暂停/继续  [←/→] 后退/前进10秒  [↑/↓] 音量")
         print("  [</>] 播放速度  [l] 循环模式  [i] 媒体信息")
         print("  [v] 可视化器  [b] 保存书签  [r] 恢复书签  [o] 歌词")
+        print("  [f] 收藏/取消  [a] AB循环  [t] 定时停止  [h] 播放历史")
         print("  [q/Ctrl+C] 退出\n")
-        
+
         # 等待用户决定是否恢复书签
         if saved_pos > 5:
             self._wait_for_resume_key(saved_pos)
         else:
             self.play_from_position(0)
-        
+
         # 控制监听
         try:
             if platform.system() == "Windows":
                 import msvcrt
                 while self.is_playing or self.is_paused:
+                    # 检查定时停止
+                    if self.sleep_timer.is_active:
+                        remaining = self.sleep_timer.get_remaining()
+                        if remaining == 0:
+                            break
+
+                    # 检查AB循环
+                    if self.ab_loop.is_active:
+                        current_sec = self.current_position / 1000
+                        loop_to = self.ab_loop.check_position(current_sec)
+                        if loop_to is not None:
+                            self.play_from_position(loop_to)
+
                     if msvcrt.kbhit():
                         key = msvcrt.getch()
                         if key == b' ':
@@ -1031,6 +1471,15 @@ class AudioPlayer:
                         elif key == b'o' or key == b'O':
                             self.lyrics.enabled = not self.lyrics.enabled
                             print(f"\n歌词: {'开启' if self.lyrics.enabled else '关闭'}")
+                        elif key == b'f' or key == b'F':
+                            is_fav = self.favorites_manager.toggle(self.file_path)
+                            print(f"\n{'❤️ 已收藏' if is_fav else '已取消收藏'}")
+                        elif key == b'a' or key == b'A':
+                            self._handle_ab_loop()
+                        elif key == b't' or key == b'T':
+                            self._set_sleep_timer()
+                        elif key == b'h' or key == b'H':
+                            self.history_manager.display()
                         elif key == b'\xe0':
                             key2 = msvcrt.getch()
                             if key2 == b'K':
@@ -1048,13 +1497,26 @@ class AudioPlayer:
                 import select
                 import termios
                 import tty
-                
+
                 fd = sys.stdin.fileno()
                 old_settings = termios.tcgetattr(fd)
-                
+
                 try:
                     tty.setraw(fd)
                     while self.is_playing or self.is_paused:
+                        # 检查定时停止
+                        if self.sleep_timer.is_active:
+                            remaining = self.sleep_timer.get_remaining()
+                            if remaining == 0:
+                                break
+
+                        # 检查AB循环
+                        if self.ab_loop.is_active:
+                            current_sec = self.current_position / 1000
+                            loop_to = self.ab_loop.check_position(current_sec)
+                            if loop_to is not None:
+                                self.play_from_position(loop_to)
+
                         if select.select([sys.stdin], [], [], 0.05)[0]:
                             ch = sys.stdin.read(1)
                             if ch == ' ':
@@ -1099,11 +1561,20 @@ class AudioPlayer:
                             elif ch in ('o', 'O'):
                                 self.lyrics.enabled = not self.lyrics.enabled
                                 print(f"\n歌词: {'开启' if self.lyrics.enabled else '关闭'}")
+                            elif ch in ('f', 'F'):
+                                is_fav = self.favorites_manager.toggle(self.file_path)
+                                print(f"\n{'❤️ 已收藏' if is_fav else '已取消收藏'}")
+                            elif ch in ('a', 'A'):
+                                self._handle_ab_loop()
+                            elif ch in ('t', 'T'):
+                                self._set_sleep_timer()
+                            elif ch in ('h', 'H'):
+                                self.history_manager.display()
                 finally:
                     termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
         except Exception as e:
             print(f"\n控制监听错误: {e}")
-        
+
         self.stop()
         print("\n播放结束")
     
@@ -1493,6 +1964,8 @@ def show_help():
     mp [选项] <媒体文件/目录/播放列表>
     mp --info <媒体文件>              显示媒体信息
     mp --playlist <文件列表...>       播放多个文件
+    mp --favorites                    播放收藏列表
+    mp --history                      显示播放历史
 
 选项:
     -h, --help          显示此帮助信息
@@ -1502,6 +1975,13 @@ def show_help():
     -l, --loop          循环模式 (single/all)
     -v, --volume N      设置音量 (0-100)
     --speed N           设置播放速度 (0.5-2.0)
+    --favorites         播放收藏列表
+    --history           显示播放历史
+    --clear-history     清空播放历史
+    --radio NAME        播放网络电台
+    --radio-list        显示电台列表
+    --radio-add N URL   添加电台
+    --radio-del NAME    删除电台
 
 支持格式:
     音频: MP3, WAV, OGG, M4A, FLAC, AAC, OPUS 等
@@ -1518,6 +1998,9 @@ def show_help():
     mp -v 50 song.mp3                   # 设置50%音量
     mp --speed 1.5 song.mp3             # 1.5倍速播放
     mp ~/Music                          # 播放目录中所有媒体
+    mp --favorites                      # 播放收藏列表
+    mp --history                        # 查看播放历史
+    mp --clear-history                  # 清空播放历史
 
 播放控制:
     空格键              暂停/继续
@@ -1539,6 +2022,10 @@ def show_help():
     b                   保存当前播放位置为书签
     r                   从书签恢复播放
     o                   切换歌词显示（需要同名.lrc文件）
+    f                   收藏/取消收藏当前歌曲
+    a                   设置AB循环（按两次设置A点和B点）
+    t                   设置定时停止（睡眠定时器）
+    h                   显示播放历史
 
 提示:
     • 播放器会自动安装ffmpeg和pygame依赖
@@ -1546,6 +2033,8 @@ def show_help():
     • 支持带空格的路径，请使用引号括起来
     • 配置保存在 ~/.config/mp/config.json
     • 书签保存在 ~/.config/mp/bookmarks.json
+    • 收藏保存在 ~/.config/mp/favorites.json
+    • 历史保存在 ~/.config/mp/history.json
     • 歌词文件需与音频文件同名（.lrc格式）
 """
     print(help_text)
@@ -1623,12 +2112,96 @@ def main():
     parser.add_argument('-l', '--loop', choices=['single', 'all'], help='循环模式')
     parser.add_argument('-v', '--volume', type=int, help='设置音量 (0-100)')
     parser.add_argument('--speed', type=float, help='设置播放速度 (0.5-2.0)')
+    parser.add_argument('--favorites', action='store_true', help='播放收藏列表')
+    parser.add_argument('--history', action='store_true', help='显示播放历史')
+    parser.add_argument('--clear-history', action='store_true', help='清空播放历史')
+    parser.add_argument('--radio', type=str, help='播放网络电台')
+    parser.add_argument('--radio-list', action='store_true', help='显示电台列表')
+    parser.add_argument('--radio-add', nargs=2, metavar=('NAME', 'URL'), help='添加电台')
+    parser.add_argument('--radio-del', type=str, help='删除电台')
     parser.add_argument('files', nargs='*', help='媒体文件路径')
     
     args = parser.parse_args()
     
     if args.help:
         show_help()
+        sys.exit(0)
+    
+    # 加载配置
+    config = Config()
+    
+    # 处理收藏播放
+    if args.favorites:
+        favorites_manager = FavoritesManager()
+        fav_files = favorites_manager.get_all()
+        if not fav_files:
+            print("收藏列表为空")
+            sys.exit(0)
+        
+        print(f"播放收藏列表 ({len(fav_files)} 首)")
+        playlist = Playlist()
+        for f in fav_files:
+            playlist.add_file(f)
+        
+        if args.shuffle:
+            playlist.shuffle()
+        
+        play_playlist(playlist, config, args.loop or config.get('loop_mode', 'none'))
+        sys.exit(0)
+    
+    # 处理历史记录
+    if args.history:
+        history_manager = HistoryManager()
+        history_manager.display()
+        sys.exit(0)
+    
+    if args.clear_history:
+        history_manager = HistoryManager()
+        history_manager.clear()
+        sys.exit(0)
+    
+    # 处理电台相关命令
+    radio_manager = RadioManager()
+    
+    if args.radio_list:
+        radio_manager.list_stations()
+        sys.exit(0)
+    
+    if args.radio_add:
+        name, url = args.radio_add
+        radio_manager.add_station(name, url)
+        sys.exit(0)
+    
+    if args.radio_del:
+        radio_manager.remove_station(args.radio_del)
+        sys.exit(0)
+    
+    if args.radio:
+        url = radio_manager.get_station_url(args.radio)
+        if not url:
+            print(f"电台不存在: {args.radio}")
+            print("使用 'mp --radio-list' 查看可用电台")
+            sys.exit(1)
+        
+        print(f"正在播放电台: {args.radio}")
+        print(f"URL: {url}")
+        print("按 Ctrl+C 停止播放\n")
+        
+        # 使用 ffplay 播放流媒体
+        cmd = [
+            'ffplay',
+            '-nodisp',
+            '-autoexit',
+            '-loglevel', 'quiet',
+            '-hide_banner',
+            '-volume', str(config.get('volume', 100)),
+            url
+        ]
+        
+        try:
+            subprocess.run(cmd)
+        except KeyboardInterrupt:
+            print("\n停止播放")
         sys.exit(0)
     
     if not args.files:
