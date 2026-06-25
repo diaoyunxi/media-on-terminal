@@ -698,6 +698,397 @@ class RadioManager:
         print("使用 'mp --radio <名称>' 播放电台")
 
 
+class QueueManager:
+    """队列管理 - 管理播放队列，支持添加、删除、重新排序"""
+
+    def __init__(self):
+        self.queue: List[Path] = []
+        self.history: List[int] = []  # 已播放的索引
+        self.current_position = -1
+
+    def add(self, file_path: Path):
+        """添加文件到队列"""
+        if file_path.exists() and file_path not in self.queue:
+            self.queue.append(file_path)
+            return True
+        return False
+
+    def add_multiple(self, files: List[Path]):
+        """批量添加文件"""
+        count = 0
+        for f in files:
+            if self.add(f):
+                count += 1
+        return count
+
+    def remove(self, index: int) -> bool:
+        """移除指定位置的文件"""
+        if 0 <= index < len(self.queue):
+            self.queue.pop(index)
+            # 调整当前位置
+            if index < self.current_position:
+                self.current_position -= 1
+            return True
+        return False
+
+    def move(self, from_idx: int, to_idx: int) -> bool:
+        """移动文件位置"""
+        if 0 <= from_idx < len(self.queue) and 0 <= to_idx < len(self.queue):
+            item = self.queue.pop(from_idx)
+            self.queue.insert(to_idx, item)
+            return True
+        return False
+
+    def clear(self):
+        """清空队列"""
+        self.queue.clear()
+        self.history.clear()
+        self.current_position = -1
+
+    def get_next(self) -> Optional[Path]:
+        """获取下一首"""
+        self.current_position += 1
+        if self.current_position < len(self.queue):
+            return self.queue[self.current_position]
+        return None
+
+    def get_previous(self) -> Optional[Path]:
+        """获取上一首"""
+        if self.current_position > 0:
+            self.current_position -= 1
+            return self.queue[self.current_position]
+        return None
+
+    def get_current(self) -> Optional[Path]:
+        """获取当前文件"""
+        if 0 <= self.current_position < len(self.queue):
+            return self.queue[self.current_position]
+        return None
+
+    def display(self):
+        """显示队列"""
+        if not self.queue:
+            print("\n队列为空")
+            return
+
+        print(f"\n{'='*60}")
+        print(f"  播放队列 ({len(self.queue)} 首)")
+        print(f"{'='*60}")
+
+        for i, file in enumerate(self.queue):
+            marker = "▶ " if i == self.current_position else "  "
+            print(f"{marker}{i+1:3d}. {file.name}")
+
+        print(f"{'='*60}\n")
+
+
+class AudioConverter:
+    """音频转换器 - 在不同格式间转换音频文件"""
+
+    SUPPORTED_FORMATS = {
+        '.mp3': ['-codec:a', 'libmp3lame', '-b:a', '192k'],
+        '.wav': ['-codec:a', 'pcm_s16le'],
+        '.ogg': ['-codec:a', 'libvorbis', '-b:a', '192k'],
+        '.m4a': ['-codec:a', 'aac', '-b:a', '192k'],
+        '.flac': ['-codec:a', 'flac'],
+        '.aac': ['-codec:a', 'aac', '-b:a', '192k'],
+        '.opus': ['-codec:a', 'libopus', '-b:a', '128k'],
+    }
+
+    @staticmethod
+    def convert(input_path: Path, output_format: str, output_dir: Optional[Path] = None) -> bool:
+        """转换音频格式"""
+        if not input_path.exists():
+            print(f"错误: 文件不存在 {input_path}")
+            return False
+
+        output_format = output_format.lower()
+        if not output_format.startswith('.'):
+            output_format = '.' + output_format
+
+        if output_format not in AudioConverter.SUPPORTED_FORMATS:
+            print(f"不支持的格式: {output_format}")
+            print(f"支持的格式: {', '.join(AudioConverter.SUPPORTED_FORMATS.keys())}")
+            return False
+
+        # 确定输出路径
+        if output_dir:
+            output_path = output_dir / (input_path.stem + output_format)
+        else:
+            output_path = input_path.with_suffix(output_format)
+
+        print(f"转换中: {input_path.name} → {output_path.name}")
+
+        # 构建 ffmpeg 命令
+        cmd = [
+            'ffmpeg',
+            '-i', str(input_path),
+            '-y',  # 覆盖输出文件
+            '-loglevel', 'quiet',
+        ]
+
+        # 添加格式特定参数
+        cmd.extend(AudioConverter.SUPPORTED_FORMATS[output_format])
+        cmd.append(str(output_path))
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0:
+                print(f"✓ 转换成功: {output_path.name}")
+                return True
+            else:
+                print(f"✗ 转换失败: {result.stderr}")
+                return False
+        except Exception as e:
+            print(f"✗ 转换错误: {e}")
+            return False
+
+    @staticmethod
+    def batch_convert(input_files: List[Path], output_format: str, output_dir: Optional[Path] = None) -> int:
+        """批量转换音频格式"""
+        success_count = 0
+        total = len(input_files)
+
+        print(f"\n批量转换: {total} 个文件 → {output_format}")
+        print(f"{'='*60}")
+
+        for i, input_path in enumerate(input_files, 1):
+            print(f"[{i}/{total}] ", end='')
+            if AudioConverter.convert(input_path, output_format, output_dir):
+                success_count += 1
+
+        print(f"\n{'='*60}")
+        print(f"转换完成: {success_count}/{total} 成功")
+
+        return success_count
+
+
+class StatisticsManager:
+    """统计管理器 - 详细的播放统计和分析"""
+
+    STATS_FILE = CONFIG_DIR / 'statistics.json'
+
+    def __init__(self):
+        self.stats = {
+            'total_play_time': 0,  # 总播放时长（秒）
+            'total_songs': 0,  # 总播放歌曲数
+            'songs_by_format': {},  # 按格式统计
+            'most_played': {},  # 最常播放的歌曲
+            'daily_stats': {},  # 每日统计
+            'weekly_stats': {},  # 每周统计
+        }
+        self.load()
+
+    def load(self):
+        """加载统计数据"""
+        try:
+            if self.STATS_FILE.exists():
+                with open(self.STATS_FILE, 'r', encoding='utf-8') as f:
+                    saved = json.load(f)
+                    self.stats.update(saved)
+        except Exception:
+            pass
+
+    def save(self):
+        """保存统计数据"""
+        try:
+            CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+            with open(self.STATS_FILE, 'w', encoding='utf-8') as f:
+                json.dump(self.stats, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
+
+    def record_play(self, file_path: Path, duration: float):
+        """记录播放"""
+        if duration < 5:  # 忽略少于5秒的播放
+            return
+
+        # 更新总播放时长
+        self.stats['total_play_time'] += duration
+        self.stats['total_songs'] += 1
+
+        # 按格式统计
+        fmt = file_path.suffix.lower()
+        self.stats['songs_by_format'][fmt] = self.stats['songs_by_format'].get(fmt, 0) + 1
+
+        # 最常播放的歌曲
+        key = str(file_path.resolve())
+        self.stats['most_played'][key] = self.stats['most_played'].get(key, 0) + 1
+
+        # 每日统计
+        today = time.strftime('%Y-%m-%d')
+        if today not in self.stats['daily_stats']:
+            self.stats['daily_stats'][today] = {'songs': 0, 'time': 0}
+        self.stats['daily_stats'][today]['songs'] += 1
+        self.stats['daily_stats'][today]['time'] += duration
+
+        # 每周统计
+        week = time.strftime('%Y-W%W')
+        if week not in self.stats['weekly_stats']:
+            self.stats['weekly_stats'][week] = {'songs': 0, 'time': 0}
+        self.stats['weekly_stats'][week]['songs'] += 1
+        self.stats['weekly_stats'][week]['time'] += duration
+
+        self.save()
+
+    def display(self):
+        """显示统计信息"""
+        print(f"\n{'='*60}")
+        print(f"  播放统计")
+        print(f"{'='*60}")
+
+        # 总体统计
+        total_time = self.stats['total_play_time']
+        hours = int(total_time // 3600)
+        minutes = int((total_time % 3600) // 60)
+        print(f"\n  总播放时长: {hours}小时 {minutes}分钟")
+        print(f"  总播放歌曲: {self.stats['total_songs']} 首")
+
+        # 格式统计
+        if self.stats['songs_by_format']:
+            print(f"\n  格式分布:")
+            sorted_formats = sorted(self.stats['songs_by_format'].items(), key=lambda x: x[1], reverse=True)
+            for fmt, count in sorted_formats[:5]:
+                print(f"    {fmt.upper():6s}: {count:3d} 首")
+
+        # 最常播放
+        if self.stats['most_played']:
+            print(f"\n  最常播放 (Top 5):")
+            sorted_songs = sorted(self.stats['most_played'].items(), key=lambda x: x[1], reverse=True)
+            for i, (path, count) in enumerate(sorted_songs[:5], 1):
+                name = Path(path).name
+                print(f"    {i}. {name} ({count}次)")
+
+        # 最近7天
+        print(f"\n  最近7天:")
+        for i in range(6, -1, -1):
+            date = (time.time() - i * 86400)
+            date_str = time.strftime('%Y-%m-%d', time.localtime(date))
+            if date_str in self.stats['daily_stats']:
+                day_stats = self.stats['daily_stats'][date_str]
+                songs = day_stats['songs']
+                play_time = day_stats['time']
+                minutes = int(play_time // 60)
+                print(f"    {date_str}: {songs:2d}首, {minutes:2d}分钟")
+            else:
+                print(f"    {date_str}:  0首,  0分钟")
+
+        print(f"{'='*60}\n")
+
+    def clear(self):
+        """清空统计"""
+        self.stats = {
+            'total_play_time': 0,
+            'total_songs': 0,
+            'songs_by_format': {},
+            'most_played': {},
+            'daily_stats': {},
+            'weekly_stats': {},
+        }
+        self.save()
+        print("统计数据已清空")
+
+
+class Equalizer:
+    """均衡器 - 多频段音频均衡控制"""
+
+    # 预设均衡器配置
+    PRESETS = {
+        'flat': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        'rock': [5, 4, 3, 1, -1, -1, 0, 2, 3, 4],
+        'pop': [-1, 0, 2, 4, 4, 3, 1, 0, -1, -2],
+        'jazz': [3, 2, 1, 2, -1, -1, 0, 1, 2, 3],
+        'classical': [4, 3, 2, 1, -1, -1, 0, 2, 3, 4],
+        'bass': [6, 5, 4, 2, 0, -1, -2, -2, -1, 0],
+        'treble': [-2, -1, 0, 1, 2, 3, 4, 5, 6, 6],
+        'vocal': [-2, -1, 0, 2, 4, 4, 3, 1, 0, -1],
+        'electronic': [4, 3, 1, 0, -2, -2, 0, 2, 3, 4],
+    }
+
+    # 频段频率
+    FREQUENCIES = ['60Hz', '170Hz', '310Hz', '600Hz', '1kHz', '3kHz', '6kHz', '12kHz', '14kHz', '16kHz']
+
+    def __init__(self):
+        self.bands = [0] * 10  # 10频段均衡器
+        self.enabled = False
+        self.current_preset = 'flat'
+
+    def set_preset(self, preset_name: str) -> bool:
+        """设置预设"""
+        if preset_name in self.PRESETS:
+            self.bands = self.PRESETS[preset_name].copy()
+            self.current_preset = preset_name
+            return True
+        return False
+
+    def set_band(self, band_index: int, value: int):
+        """设置单个频段"""
+        if 0 <= band_index < len(self.bands):
+            self.bands[band_index] = max(-12, min(12, value))
+
+    def get_filter_string(self) -> str:
+        """获取 ffmpeg 均衡器滤镜字符串"""
+        if not self.enabled:
+            return ''
+
+        filters = []
+        for i, gain in enumerate(self.bands):
+            if gain != 0:
+                freq = self._get_frequency(i)
+                filters.append(f"equalizer=f={freq}:width_type=o:width=1.5:g={gain}")
+
+        return ','.join(filters) if filters else ''
+
+    def _get_frequency(self, band_index: int) -> int:
+        """获取频段中心频率"""
+        freq_map = [60, 170, 310, 600, 1000, 3000, 6000, 12000, 14000, 16000]
+        if 0 <= band_index < len(freq_map):
+            return freq_map[band_index]
+        return 1000
+
+    def display(self):
+        """显示均衡器状态"""
+        print(f"\n{'='*60}")
+        print(f"  均衡器 - {self.current_preset.upper()}")
+        print(f"{'='*60}")
+
+        # 显示频段
+        for i, (freq, gain) in enumerate(zip(self.FREQUENCIES, self.bands)):
+            bar_length = 20
+            center = bar_length // 2
+            bar = [' '] * bar_length
+
+            if gain > 0:
+                for j in range(center, center + gain):
+                    if j < bar_length:
+                        bar[j] = '█'
+            elif gain < 0:
+                for j in range(center + gain, center):
+                    if j >= 0:
+                        bar[j] = '█'
+
+            bar[center] = '┼'
+            bar_str = ''.join(bar)
+            print(f"  {freq:6s} |{bar_str}| {gain:+2d}dB")
+
+        print(f"{'='*60}\n")
+
+    def toggle(self):
+        """切换均衡器开关"""
+        self.enabled = not self.enabled
+        return self.enabled
+
+    def list_presets(self):
+        """列出所有预设"""
+        print(f"\n{'='*60}")
+        print(f"  均衡器预设")
+        print(f"{'='*60}")
+        for name in self.PRESETS.keys():
+            marker = "▶ " if name == self.current_preset else "  "
+            print(f"{marker}{name}")
+        print(f"{'='*60}\n")
+
+
 class LyricsDisplay:
     """歌词显示类"""
     
@@ -1055,6 +1446,9 @@ class AudioPlayer:
         self.history_manager = HistoryManager()
         self.sleep_timer = SleepTimer()
         self.ab_loop = ABLoop()
+        self.queue_manager = QueueManager()
+        self.statistics_manager = StatisticsManager()
+        self.equalizer = Equalizer()
         
         # 导入 pygame（在依赖检查之后已经导入）
         import pygame
@@ -1125,10 +1519,22 @@ class AudioPlayer:
             '-hide_banner',
             '-volume', str(self.volume),
         ]
-        
+
+        # 构建音频滤镜链
+        audio_filters = []
+
         # 播放速度
         if self.playback_speed != 1.0:
-            cmd.extend(['-af', f'atempo={self.playback_speed}'])
+            audio_filters.append(f'atempo={self.playback_speed}')
+
+        # 均衡器
+        eq_filter = self.equalizer.get_filter_string()
+        if eq_filter:
+            audio_filters.append(eq_filter)
+
+        # 应用滤镜
+        if audio_filters:
+            cmd.extend(['-af', ','.join(audio_filters)])
         
         if position_sec > 0:
             cmd.extend(['-ss', str(position_sec)])
@@ -1252,7 +1658,11 @@ class AudioPlayer:
         # 歌词
         if self.lyrics.enabled and self.lyrics.lyrics:
             status_parts.append("📝 歌词")
-        
+
+        # 均衡器
+        if self.equalizer.enabled:
+            status_parts.append(f"🎛️ {self.equalizer.current_preset.upper()}")
+
         status = " | ".join(status_parts)
         
         # 获取终端宽度
@@ -1339,6 +1749,10 @@ class AudioPlayer:
     
     def stop(self):
         """停止播放"""
+        # 记录播放统计
+        play_duration = self.current_position / 1000  # 转换为秒
+        self.statistics_manager.record_play(self.file_path, play_duration)
+
         self.is_playing = False
         if self.process and self.process.poll() is None:
             self.process.terminate()
@@ -1394,6 +1808,25 @@ class AudioPlayer:
             else:
                 print("\nB点必须大于A点")
 
+    def _convert_audio(self):
+        """交互式音频转换"""
+        print("\n音频格式转换")
+        print("支持的格式: mp3, wav, ogg, m4a, flac, aac, opus")
+        try:
+            output_format = input("目标格式 (例如: mp3): ").strip().lower()
+            if not output_format:
+                print("已取消")
+                return
+
+            # 转换当前文件
+            success = AudioConverter.convert(self.file_path, output_format)
+            if success:
+                print("转换完成")
+            else:
+                print("转换失败")
+        except Exception as e:
+            print(f"错误: {e}")
+
     def run(self):
         """主播放循环"""
         print(f"\n播放: {self.file_path.name}")
@@ -1417,7 +1850,8 @@ class AudioPlayer:
         print("  [</>] 播放速度  [l] 循环模式  [i] 媒体信息")
         print("  [v] 可视化器  [b] 保存书签  [r] 恢复书签  [o] 歌词")
         print("  [f] 收藏/取消  [a] AB循环  [t] 定时停止  [h] 播放历史")
-        print("  [q/Ctrl+C] 退出\n")
+        print("  [e] 切换均衡器  [E] 均衡器预设  [Q] 播放队列  [S] 统计")
+        print("  [c] 转换格式  [q/Ctrl+C] 退出\n")
 
         # 等待用户决定是否恢复书签
         if saved_pos > 5:
@@ -1480,6 +1914,20 @@ class AudioPlayer:
                             self._set_sleep_timer()
                         elif key == b'h' or key == b'H':
                             self.history_manager.display()
+                        elif key == b'e' or key == b'E':
+                            if key == b'e':
+                                enabled = self.equalizer.toggle()
+                                print(f"\n均衡器: {'开启' if enabled else '关闭'}")
+                                if enabled:
+                                    self.play_from_position(self.current_position / 1000)
+                            else:
+                                self.equalizer.list_presets()
+                        elif key == b'Q':
+                            self.queue_manager.display()
+                        elif key == b'S':
+                            self.statistics_manager.display()
+                        elif key == b'c' or key == b'C':
+                            self._convert_audio()
                         elif key == b'\xe0':
                             key2 = msvcrt.getch()
                             if key2 == b'K':
@@ -1570,6 +2018,19 @@ class AudioPlayer:
                                 self._set_sleep_timer()
                             elif ch in ('h', 'H'):
                                 self.history_manager.display()
+                            elif ch == 'e':
+                                enabled = self.equalizer.toggle()
+                                print(f"\n均衡器: {'开启' if enabled else '关闭'}")
+                                if enabled:
+                                    self.play_from_position(self.current_position / 1000)
+                            elif ch == 'E':
+                                self.equalizer.list_presets()
+                            elif ch == 'Q':
+                                self.queue_manager.display()
+                            elif ch == 'S':
+                                self.statistics_manager.display()
+                            elif ch in ('c', 'C'):
+                                self._convert_audio()
                 finally:
                     termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
         except Exception as e:
@@ -1978,6 +2439,10 @@ def show_help():
     --favorites         播放收藏列表
     --history           显示播放历史
     --clear-history     清空播放历史
+    --stats             显示播放统计
+    --clear-stats       清空播放统计
+    --convert FMT       转换音频格式 (mp3/wav/ogg/m4a/flac/aac/opus)
+    --eq PRESET         使用均衡器预设播放
     --radio NAME        播放网络电台
     --radio-list        显示电台列表
     --radio-add N URL   添加电台
@@ -2001,6 +2466,12 @@ def show_help():
     mp --favorites                      # 播放收藏列表
     mp --history                        # 查看播放历史
     mp --clear-history                  # 清空播放历史
+    mp --stats                          # 查看播放统计
+    mp --clear-stats                    # 清空播放统计
+    mp --eq rock song.mp3               # 使用摇滚均衡器预设播放
+    mp --eq-list                        # 显示均衡器预设列表
+    mp --convert mp3 song.flac          # 将FLAC转换为MP3
+    mp --convert ogg *.wav              # 批量将WAV转换为OGG
 
 播放控制:
     空格键              暂停/继续
@@ -2026,6 +2497,11 @@ def show_help():
     a                   设置AB循环（按两次设置A点和B点）
     t                   设置定时停止（睡眠定时器）
     h                   显示播放历史
+    e                   切换均衡器开关
+    E                   显示均衡器预设列表
+    Q                   显示播放队列
+    S                   显示播放统计
+    c                   转换当前音频格式
 
 提示:
     • 播放器会自动安装ffmpeg和pygame依赖
@@ -2115,6 +2591,11 @@ def main():
     parser.add_argument('--favorites', action='store_true', help='播放收藏列表')
     parser.add_argument('--history', action='store_true', help='显示播放历史')
     parser.add_argument('--clear-history', action='store_true', help='清空播放历史')
+    parser.add_argument('--stats', action='store_true', help='显示播放统计')
+    parser.add_argument('--clear-stats', action='store_true', help='清空播放统计')
+    parser.add_argument('--convert', type=str, metavar='FMT', help='转换音频格式 (mp3/wav/ogg/m4a/flac/aac/opus)')
+    parser.add_argument('--eq', type=str, metavar='PRESET', help='使用均衡器预设播放')
+    parser.add_argument('--eq-list', action='store_true', help='显示均衡器预设列表')
     parser.add_argument('--radio', type=str, help='播放网络电台')
     parser.add_argument('--radio-list', action='store_true', help='显示电台列表')
     parser.add_argument('--radio-add', nargs=2, metavar=('NAME', 'URL'), help='添加电台')
@@ -2160,6 +2641,23 @@ def main():
         history_manager.clear()
         sys.exit(0)
     
+    # 处理统计相关命令
+    if args.stats:
+        stats_manager = StatisticsManager()
+        stats_manager.display()
+        sys.exit(0)
+    
+    if args.clear_stats:
+        stats_manager = StatisticsManager()
+        stats_manager.clear()
+        sys.exit(0)
+    
+    # 处理均衡器预设列表
+    if args.eq_list:
+        eq = Equalizer()
+        eq.list_presets()
+        sys.exit(0)
+    
     # 处理电台相关命令
     radio_manager = RadioManager()
     
@@ -2203,7 +2701,24 @@ def main():
         except KeyboardInterrupt:
             print("\n停止播放")
         sys.exit(0)
-    
+
+    # 处理音频转换命令
+    if args.convert:
+        if not args.files:
+            print("错误: 请指定要转换的音频文件")
+            sys.exit(1)
+
+        input_files = [Path(f) for f in args.files]
+        output_format = args.convert.lower()
+
+        if len(input_files) == 1:
+            # 单文件转换
+            AudioConverter.convert(input_files[0], output_format)
+        else:
+            # 批量转换
+            AudioConverter.batch_convert(input_files, output_format)
+        sys.exit(0)
+
     if not args.files:
         print("错误: 请指定要播放的媒体文件")
         print("使用 'mp --help' 查看使用方法")
@@ -2277,15 +2792,24 @@ def main():
         else:
             # 音频文件
             player = AudioPlayer(first_path, config)
-            
+
+            # 应用均衡器预设
+            if args.eq:
+                if player.equalizer.set_preset(args.eq.lower()):
+                    player.equalizer.enabled = True
+                    print(f"均衡器预设: {args.eq}")
+                else:
+                    print(f"未知的均衡器预设: {args.eq}")
+                    print("使用 'mp --eq-list' 查看可用预设")
+
             # 设置信号处理
             def signal_handler(sig, frame):
                 print("\n退出播放")
                 player.stop()
                 sys.exit(0)
-            
+
             signal.signal(signal.SIGINT, signal_handler)
-            
+
             # 运行音频播放器
             try:
                 player.run()
