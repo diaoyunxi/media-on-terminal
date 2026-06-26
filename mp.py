@@ -1089,6 +1089,653 @@ class Equalizer:
         print(f"{'='*60}\n")
 
 
+class FileBrowser:
+    """交互式文件浏览器 - 在终端中浏览和选择媒体文件"""
+
+    MEDIA_EXTENSIONS = {
+        '.mp3', '.wav', '.ogg', '.m4a', '.flac', '.aac', '.opus', '.m4b',
+        '.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv'
+    }
+
+    def __init__(self, start_dir: Optional[Path] = None):
+        self.current_dir = start_dir or Path.home()
+        self.cursor = 0
+        self.scroll_offset = 0
+        self.selected: List[Path] = []
+        self.entries: List[Path] = []
+        self.refresh_entries()
+
+    def refresh_entries(self):
+        """刷新当前目录内容"""
+        dirs = []
+        files = []
+        try:
+            for entry in sorted(self.current_dir.iterdir(), key=lambda x: x.name.lower()):
+                if entry.name.startswith('.'):
+                    continue
+                if entry.is_dir():
+                    dirs.append(entry)
+                elif entry.is_file() and entry.suffix.lower() in self.MEDIA_EXTENSIONS:
+                    files.append(entry)
+        except PermissionError:
+            pass
+        self.entries = dirs + files
+        self.cursor = min(self.cursor, max(0, len(self.entries) - 1))
+
+    def _get_display_height(self) -> int:
+        try:
+            return os.get_terminal_size().lines - 6
+        except Exception:
+            return 20
+
+    def _has_parent_entry(self) -> bool:
+        """是否有上级目录条目"""
+        return self.current_dir.parent != self.current_dir
+
+    def _total_items(self) -> int:
+        """总条目数（包括..）"""
+        return len(self.entries) + (1 if self._has_parent_entry() else 0)
+
+    def _render(self):
+        """渲染文件浏览器界面"""
+        try:
+            term_width = os.get_terminal_size().columns
+        except Exception:
+            term_width = 80
+
+        display_height = self._get_display_height()
+        has_parent = self._has_parent_entry()
+        total_items = self._total_items()
+
+        # 调整滚动
+        if self.cursor < self.scroll_offset:
+            self.scroll_offset = self.cursor
+        elif self.cursor >= self.scroll_offset + display_height:
+            self.scroll_offset = self.cursor - display_height + 1
+
+        # 清屏
+        sys.stdout.write('\033[2J\033[H')
+
+        # 标题栏
+        print(f"\033[1;34m{'═' * term_width}\033[0m")
+        title = "  mp 文件浏览器"
+        print(f"\033[1;34m{title:<{term_width - 1}}\033[0m")
+        print(f"\033[1;34m{'═' * term_width}\033[0m")
+
+        # 当前路径
+        path_display = str(self.current_dir)
+        if len(path_display) > term_width - 10:
+            path_display = '...' + path_display[-(term_width - 13):]
+        print(f"\033[33m  📁 {path_display}\033[0m")
+        print(f"\033[90m  已选: {len(self.selected)} 个文件\033[0m")
+        print(f"\033[1;34m{'─' * term_width}\033[0m")
+
+        # 计算可见范围
+        visible_start = self.scroll_offset
+        visible_end = min(visible_start + display_height, total_items)
+
+        for display_idx in range(visible_start, visible_end):
+            is_cursor = (display_idx == self.cursor)
+            marker = "▶ " if is_cursor else "  "
+
+            if has_parent and display_idx == 0:
+                # 上级目录
+                line = f"{marker}\033[36m⬆ ..\033[0m"
+            else:
+                entry_idx = display_idx - (1 if has_parent else 0)
+                if entry_idx < len(self.entries):
+                    entry = self.entries[entry_idx]
+
+                    if entry.is_dir():
+                        icon = "📁"
+                        color = "\033[36m"
+                        name = entry.name + "/"
+                    else:
+                        icon = "🎵"
+                        color = "\033[0m"
+                        name = entry.name
+
+                    sel_marker = ""
+                    if entry in self.selected:
+                        sel_marker = " \033[32m✓\033[0m"
+
+                    line = f"{marker}{icon} {color}{name}\033[0m{sel_marker}"
+                else:
+                    continue
+
+            if is_cursor:
+                line = f"\033[7m{line:<{term_width - 1}}\033[0m"
+
+            print(line)
+
+        # 底部帮助
+        print(f"\033[1;34m{'─' * term_width}\033[0m")
+        help_text = " ↑↓导航  Enter选择/进入  Space选中  a全选  c清除  p播放  q返回 "
+        padding = max(0, (term_width - len(help_text)) // 2)
+        print(f"\033[90m{' ' * padding}{help_text}\033[0m")
+        sys.stdout.flush()
+
+    def run(self) -> List[Path]:
+        """运行文件浏览器，返回选中的文件列表"""
+        if platform.system() == "Windows":
+            return self._run_windows()
+        else:
+            return self._run_unix()
+
+    def _run_unix(self) -> List[Path]:
+        import select
+        import termios
+        import tty
+
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+
+        try:
+            tty.setcbreak(fd)
+
+            while True:
+                self._render()
+
+                if select.select([sys.stdin], [], [], 0.1)[0]:
+                    ch = sys.stdin.read(1)
+
+                    if ch == '\x1b':
+                        ch2 = sys.stdin.read(1)
+                        if ch2 == '[':
+                            ch3 = sys.stdin.read(1)
+                            if ch3 == 'A':  # Up
+                                self.cursor = max(0, self.cursor - 1)
+                            elif ch3 == 'B':  # Down
+                                self.cursor = min(self._total_items() - 1, self.cursor + 1)
+                    elif ch == '\n' or ch == '\r':  # Enter
+                        if self.cursor == 0 and self.current_dir.parent != self.current_dir:
+                            self.current_dir = self.current_dir.parent
+                            self.cursor = 0
+                            self.scroll_offset = 0
+                            self.refresh_entries()
+                        elif self.cursor < len(self.entries):
+                            entry = self.entries[self.cursor]
+                            if entry.is_dir():
+                                self.current_dir = entry
+                                self.cursor = 0
+                                self.scroll_offset = 0
+                                self.refresh_entries()
+                            else:
+                                self.toggle_select(entry)
+                    elif ch == ' ':  # Space - toggle select
+                        if self.cursor < len(self.entries):
+                            entry = self.entries[self.cursor]
+                            if entry.is_file():
+                                self.toggle_select(entry)
+                    elif ch == 'a':  # Select all
+                        self.select_all()
+                    elif ch == 'c':  # Clear selection
+                        self.selected.clear()
+                    elif ch == 'p':  # Play selected
+                        if self.selected:
+                            break
+                        elif self.cursor < len(self.entries) and self.entries[self.cursor].is_file():
+                            self.selected.append(self.entries[self.cursor])
+                            break
+                    elif ch in ('q', 'Q', '\x03'):
+                        self.selected.clear()
+                        break
+
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            sys.stdout.write('\033[2J\033[H')
+            sys.stdout.flush()
+
+        return self.selected.copy()
+
+    def _run_windows(self) -> List[Path]:
+        import msvcrt
+
+        while True:
+            self._render()
+
+            if msvcrt.kbhit():
+                key = msvcrt.getch()
+
+                if key == b'\xe0':
+                    key2 = msvcrt.getch()
+                    if key2 == b'H':  # Up
+                        self.cursor = max(0, self.cursor - 1)
+                    elif key2 == b'P':  # Down
+                        self.cursor = min(self._total_items() - 1, self.cursor + 1)
+                elif key in (b'\r', b'\n'):  # Enter
+                    if self.cursor == 0 and self.current_dir.parent != self.current_dir:
+                        self.current_dir = self.current_dir.parent
+                        self.cursor = 0
+                        self.scroll_offset = 0
+                        self.refresh_entries()
+                    elif self.cursor < len(self.entries):
+                        entry = self.entries[self.cursor]
+                        if entry.is_dir():
+                            self.current_dir = entry
+                            self.cursor = 0
+                            self.scroll_offset = 0
+                            self.refresh_entries()
+                        else:
+                            self.toggle_select(entry)
+                elif key == b' ':
+                    if self.cursor < len(self.entries):
+                        entry = self.entries[self.cursor]
+                        if entry.is_file():
+                            self.toggle_select(entry)
+                elif key == b'a':
+                    self.select_all()
+                elif key == b'c':
+                    self.selected.clear()
+                elif key == b'p':
+                    if self.selected:
+                        break
+                    elif self.cursor < len(self.entries) and self.entries[self.cursor].is_file():
+                        self.selected.append(self.entries[self.cursor])
+                        break
+                elif key in (b'q', b'Q'):
+                    self.selected.clear()
+                    break
+
+            time.sleep(0.05)
+
+        return self.selected.copy()
+
+    def toggle_select(self, entry: Path):
+        """切换文件选中状态"""
+        if entry in self.selected:
+            self.selected.remove(entry)
+        else:
+            self.selected.append(entry)
+
+    def select_all(self):
+        """选中所有文件"""
+        for entry in self.entries:
+            if entry.is_file() and entry not in self.selected:
+                self.selected.append(entry)
+
+
+class NoiseGenerator:
+    """噪声生成器 - 生成白噪声/粉红噪声/棕噪声用于助眠/专注"""
+
+    NOISE_TYPES = {
+        'white': '白噪声',
+        'pink': '粉红噪声',
+        'brown': '棕噪声',
+        'rain': '雨声',
+        'ocean': '海浪',
+    }
+
+    def __init__(self):
+        self.noise_type = 'white'
+        self.volume = 30
+        self.process = None
+        self.is_playing = False
+
+    def _generate_noise_cmd(self) -> List[str]:
+        """生成 ffmpeg 噪声命令"""
+        if self.noise_type == 'white':
+            return [
+                'ffmpeg', '-f', 'lavfi', '-i',
+                f'anoisesrc=color=white:amplitude=0.3',
+                '-f', 'wav', '-'
+            ]
+        elif self.noise_type == 'pink':
+            return [
+                'ffmpeg', '-f', 'lavfi', '-i',
+                f'anoisesrc=color=pink:amplitude=0.3',
+                '-f', 'wav', '-'
+            ]
+        elif self.noise_type == 'brown':
+            return [
+                'ffmpeg', '-f', 'lavfi', '-i',
+                f'anoisesrc=color=brown:amplitude=0.3',
+                '-f', 'wav', '-'
+            ]
+        elif self.noise_type == 'rain':
+            # 模拟雨声：白噪声 + 低通滤波
+            return [
+                'ffmpeg', '-f', 'lavfi', '-i',
+                f'anoisesrc=color=white:amplitude=0.5',
+                '-af', 'lowpass=f=2000,highpass=f=200,tremolo=f=8:d=0.7',
+                '-f', 'wav', '-'
+            ]
+        elif self.noise_type == 'ocean':
+            # 模拟海浪：棕噪声 + 低频调制
+            return [
+                'ffmpeg', '-f', 'lavfi', '-i',
+                f'anoisesrc=color=brown:amplitude=0.4',
+                '-af', 'lowpass=f=500,tremolo=f=0.15:d=0.8',
+                '-f', 'wav', '-'
+            ]
+        return ['ffmpeg', '-f', 'lavfi', '-i', 'anoisesrc=color=white', '-f', 'wav', '-']
+
+    def play(self):
+        """开始播放噪声"""
+        if self.is_playing:
+            self.stop()
+
+        cmd = self._generate_noise_cmd()
+        cmd.extend([
+            '-ar', '44100', '-ac', '2',
+            '-f', 's16le', '-'
+        ])
+
+        # 使用 ffplay 播放
+        play_cmd = [
+            'ffplay',
+            '-nodisp', '-autoexit',
+            '-loglevel', 'quiet', '-hide_banner',
+            '-volume', str(self.volume),
+            '-f', 's16le', '-ar', '44100', '-ac', '2',
+            'pipe:0'
+        ]
+
+        noise_proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
+        )
+        self.process = subprocess.Popen(
+            play_cmd,
+            stdin=noise_proc.stdout,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        noise_proc.stdout.close()
+        self._noise_proc = noise_proc
+        self.is_playing = True
+
+    def stop(self):
+        """停止播放"""
+        self.is_playing = False
+        if self.process and self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=1)
+            except Exception:
+                self.process.kill()
+        if hasattr(self, '_noise_proc') and self._noise_proc and self._noise_proc.poll() is None:
+            self._noise_proc.terminate()
+            try:
+                self._noise_proc.wait(timeout=1)
+            except Exception:
+                self._noise_proc.kill()
+
+    def set_type(self, noise_type: str):
+        """设置噪声类型"""
+        if noise_type in self.NOISE_TYPES:
+            self.noise_type = noise_type
+            if self.is_playing:
+                self.play()  # Restart with new type
+
+    def set_volume(self, vol: int):
+        """设置音量"""
+        self.volume = max(0, min(100, vol))
+
+    def run_interactive(self):
+        """交互式噪声播放器"""
+        self.play()
+
+        print(f"\n🔊 噪声生成器 - {self.NOISE_TYPES[self.noise_type]}")
+        print(f"音量: {self.volume}%")
+        print("\n控制:")
+        print("  1-5  切换噪声类型")
+        print("  ↑/↓  调整音量")
+        print("  q    退出\n")
+
+        if platform.system() != "Windows":
+            import select
+            import termios
+            import tty
+
+            fd = sys.stdin.fileno()
+            old_settings = termios.tcgetattr(fd)
+
+            try:
+                tty.setcbreak(fd)
+
+                while self.is_playing:
+                    # 显示状态
+                    types_str = " ".join(
+                        f"\033[7m{k}: {v}\033[0m" if k == self.noise_type else f"{k}: {v}"
+                        for k, v in self.NOISE_TYPES.items()
+                    )
+                    print(f"\r  类型: {types_str} | 音量: {self.volume}%    ", end='', flush=True)
+
+                    if select.select([sys.stdin], [], [], 0.1)[0]:
+                        ch = sys.stdin.read(1)
+
+                        if ch in ('q', 'Q', '\x03'):
+                            break
+                        elif ch == '1':
+                            self.set_type('white')
+                        elif ch == '2':
+                            self.set_type('pink')
+                        elif ch == '3':
+                            self.set_type('brown')
+                        elif ch == '4':
+                            self.set_type('rain')
+                        elif ch == '5':
+                            self.set_type('ocean')
+                        elif ch == '\x1b':
+                            ch2 = sys.stdin.read(1)
+                            if ch2 == '[':
+                                ch3 = sys.stdin.read(1)
+                                if ch3 == 'A':
+                                    self.set_volume(self.volume + 5)
+                                elif ch3 == 'B':
+                                    self.set_volume(self.volume - 5)
+                    time.sleep(0.1)
+
+            finally:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+        self.stop()
+        print("\n噪声生成器已停止")
+
+
+class MetadataEditor:
+    """元数据编辑器 - 编辑媒体文件的标签信息"""
+
+    SUPPORTED_TAGS = {
+        '.mp3': {'title': 'title', 'artist': 'artist', 'album': 'album', 'track': 'track', 'genre': 'genre', 'date': 'date'},
+        '.m4a': {'title': 'title', 'artist': 'artist', 'album': 'album', 'track': 'track', 'genre': 'genre', 'date': 'date'},
+        '.flac': {'title': 'TITLE', 'artist': 'ARTIST', 'album': 'ALBUM', 'track': 'TRACKNUMBER', 'genre': 'GENRE', 'date': 'DATE'},
+        '.ogg': {'title': 'TITLE', 'artist': 'ARTIST', 'album': 'ALBUM', 'track': 'TRACKNUMBER', 'genre': 'GENRE', 'date': 'DATE'},
+        '.opus': {'title': 'TITLE', 'artist': 'ARTIST', 'album': 'ALBUM', 'track': 'TRACKNUMBER', 'genre': 'GENRE', 'date': 'DATE'},
+        '.wav': {'title': 'INAM', 'artist': 'IART', 'album': 'IPRD', 'track': 'ITRK', 'genre': 'IGNR', 'date': 'ICRD'},
+    }
+
+    @staticmethod
+    def get_tags(file_path: Path) -> Dict[str, str]:
+        """获取文件的标签信息"""
+        tags = {}
+        try:
+            cmd = [
+                'ffprobe', '-v', 'quiet',
+                '-print_format', 'json',
+                '-show_format',
+                str(file_path)
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0:
+                data = json.loads(result.stdout)
+                fmt_tags = data.get('format', {}).get('tags', {})
+                for key, value in fmt_tags.items():
+                    tags[key.upper()] = value
+        except Exception:
+            pass
+        return tags
+
+    @staticmethod
+    def set_tag(file_path: Path, tag: str, value: str) -> bool:
+        """设置单个标签"""
+        ext = file_path.suffix.lower()
+        if ext not in MetadataEditor.SUPPORTED_TAGS:
+            print(f"不支持的格式: {ext}")
+            return False
+
+        # 创建临时输出文件
+        temp_path = file_path.with_suffix(file_path.suffix + '.tmp')
+
+        cmd = [
+            'ffmpeg', '-y', '-i', str(file_path),
+            '-codec', 'copy',
+            '-metadata', f'{tag}={value}',
+            str(temp_path)
+        ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0:
+                # 替换原文件
+                temp_path.replace(file_path)
+                return True
+            else:
+                if temp_path.exists():
+                    temp_path.unlink()
+                print(f"设置标签失败: {result.stderr}")
+                return False
+        except Exception as e:
+            if temp_path.exists():
+                temp_path.unlink()
+            print(f"错误: {e}")
+            return False
+
+    @staticmethod
+    def display_tags(file_path: Path):
+        """显示文件的标签信息"""
+        tags = MetadataEditor.get_tags(file_path)
+
+        print(f"\n{'='*60}")
+        print(f"  元数据: {file_path.name}")
+        print(f"{'='*60}")
+
+        if not tags:
+            print("  (无标签信息)")
+        else:
+            for key, value in sorted(tags.items()):
+                # 跳过一些技术性标签
+                if key in ('ENCODER', 'MAJOR_BRAND', 'MINOR_VERSION', 'COMPATIBLE_BRANDS'):
+                    continue
+                print(f"  {key:20s}: {value}")
+
+        print(f"{'='*60}\n")
+
+    @staticmethod
+    def run_interactive(file_path: Path):
+        """交互式编辑标签"""
+        ext = file_path.suffix.lower()
+        if ext not in MetadataEditor.SUPPORTED_TAGS:
+            print(f"不支持编辑的格式: {ext}")
+            print(f"支持的格式: {', '.join(MetadataEditor.SUPPORTED_TAGS.keys())}")
+            return
+
+        tag_map = MetadataEditor.SUPPORTED_TAGS[ext]
+        current_tags = MetadataEditor.get_tags(file_path)
+
+        print(f"\n编辑元数据: {file_path.name}")
+        print(f"{'='*60}")
+
+        tag_names = {
+            'title': '标题', 'artist': '艺术家', 'album': '专辑',
+            'track': '曲目号', 'genre': '流派', 'date': '日期/年份'
+        }
+
+        for i, (tag_key, _) in enumerate(tag_map.items(), 1):
+            display_name = tag_names.get(tag_key, tag_key)
+            current_value = ''
+            # 尝试从现有标签中查找
+            for k, v in current_tags.items():
+                if k.lower() == tag_key.lower():
+                    current_value = v
+                    break
+            print(f"  {i}. {display_name:8s}: {current_value or '(空)'}")
+
+        print(f"\n输入编号修改 (1-6), 0 取消, q 退出:")
+
+        try:
+            choice = input("> ").strip()
+            if choice in ('0', 'q', 'Q'):
+                return
+
+            idx = int(choice) - 1
+            tag_keys = list(tag_map.keys())
+            if 0 <= idx < len(tag_keys):
+                tag_key = tag_keys[idx]
+                display_name = tag_names.get(tag_key, tag_key)
+                new_value = input(f"输入新的{display_name}: ").strip()
+                if new_value:
+                    ffmpeg_tag = tag_map[tag_key]
+                    if MetadataEditor.set_tag(file_path, ffmpeg_tag, new_value):
+                        print(f"✓ {display_name} 已更新为: {new_value}")
+                    else:
+                        print("✗ 更新失败")
+        except (ValueError, EOFError):
+            pass
+
+
+class CrossfadeManager:
+    """交叉淡入淡出管理器 - 在播放列表曲目间平滑过渡"""
+
+    def __init__(self):
+        self.enabled = False
+        self.duration = 3.0  # 交叉淡入淡出时长（秒）
+
+    def toggle(self) -> bool:
+        """切换启用状态"""
+        self.enabled = not self.enabled
+        return self.enabled
+
+    def set_duration(self, seconds: float):
+        """设置淡入淡出时长"""
+        self.duration = max(0.5, min(15.0, seconds))
+
+    def get_status(self) -> str:
+        """获取状态字符串"""
+        if self.enabled:
+            return f"🔀 交叉淡入 {self.duration:.1f}s"
+        return ""
+
+
+class PitchControl:
+    """音调控制 - 独立于播放速度调整音调"""
+
+    def __init__(self):
+        self.semitones = 0.0  # 半音偏移 (-12 to +12)
+        self.enabled = False
+
+    def set_semitones(self, value: float):
+        """设置半音偏移"""
+        self.semitones = max(-12.0, min(12.0, value))
+        self.enabled = self.semitones != 0.0
+
+    def adjust(self, delta: float):
+        """调整半音"""
+        self.set_semitones(self.semitones + delta)
+
+    def get_filter_string(self) -> str:
+        """获取 ffmpeg 音调滤镜字符串"""
+        if not self.enabled or self.semitones == 0.0:
+            return ''
+        # 使用 asetrate + aresample 来改变音调
+        # 半音到频率比: ratio = 2^(semitones/12)
+        ratio = 2 ** (self.semitones / 12.0)
+        sample_rate = int(44100 * ratio)
+        return f'asetrate=44100*{ratio:.6f},aresample=44100'
+
+    def reset(self):
+        """重置音调"""
+        self.semitones = 0.0
+        self.enabled = False
+
+    def get_status(self) -> str:
+        """获取状态字符串"""
+        if self.enabled:
+            sign = '+' if self.semitones > 0 else ''
+            return f"🎵 音调: {sign}{self.semitones:.1f}半音"
+        return ""
+
+
 class LyricsDisplay:
     """歌词显示类"""
     
@@ -1449,6 +2096,8 @@ class AudioPlayer:
         self.queue_manager = QueueManager()
         self.statistics_manager = StatisticsManager()
         self.equalizer = Equalizer()
+        self.pitch_control = PitchControl()
+        self.crossfade = CrossfadeManager()
         
         # 导入 pygame（在依赖检查之后已经导入）
         import pygame
@@ -1526,6 +2175,11 @@ class AudioPlayer:
         # 播放速度
         if self.playback_speed != 1.0:
             audio_filters.append(f'atempo={self.playback_speed}')
+
+        # 音调控制
+        pitch_filter = self.pitch_control.get_filter_string()
+        if pitch_filter:
+            audio_filters.append(pitch_filter)
 
         # 均衡器
         eq_filter = self.equalizer.get_filter_string()
@@ -1662,6 +2316,16 @@ class AudioPlayer:
         # 均衡器
         if self.equalizer.enabled:
             status_parts.append(f"🎛️ {self.equalizer.current_preset.upper()}")
+
+        # 音调控制
+        pitch_status = self.pitch_control.get_status()
+        if pitch_status:
+            status_parts.append(pitch_status)
+
+        # 交叉淡入淡出
+        crossfade_status = self.crossfade.get_status()
+        if crossfade_status:
+            status_parts.append(crossfade_status)
 
         status = " | ".join(status_parts)
         
@@ -1851,7 +2515,8 @@ class AudioPlayer:
         print("  [v] 可视化器  [b] 保存书签  [r] 恢复书签  [o] 歌词")
         print("  [f] 收藏/取消  [a] AB循环  [t] 定时停止  [h] 播放历史")
         print("  [e] 切换均衡器  [E] 均衡器预设  [Q] 播放队列  [S] 统计")
-        print("  [c] 转换格式  [q/Ctrl+C] 退出\n")
+        print("  [c] 转换格式  [m] 编辑元数据  [p/P] 音调控制  [x] 交叉淡入")
+        print("  [F] 文件浏览器  [q/Ctrl+C] 退出\n")
 
         # 等待用户决定是否恢复书签
         if saved_pos > 5:
@@ -1928,6 +2593,23 @@ class AudioPlayer:
                             self.statistics_manager.display()
                         elif key == b'c' or key == b'C':
                             self._convert_audio()
+                        elif key == b'm':
+                            MetadataEditor.run_interactive(self.file_path)
+                        elif key == b'p':
+                            self.pitch_control.adjust(-0.5)
+                            print(f"\n{self.pitch_control.get_status()}")
+                            self.play_from_position(self.current_position / 1000)
+                        elif key == b'P':
+                            self.pitch_control.adjust(0.5)
+                            print(f"\n{self.pitch_control.get_status()}")
+                            self.play_from_position(self.current_position / 1000)
+                        elif key == b'x':
+                            enabled = self.crossfade.toggle()
+                            print(f"\n交叉淡入淡出: {'开启' if enabled else '关闭'}")
+                        elif key == b'X':
+                            self.pitch_control.reset()
+                            print(f"\n音调已重置")
+                            self.play_from_position(self.current_position / 1000)
                         elif key == b'\xe0':
                             key2 = msvcrt.getch()
                             if key2 == b'K':
@@ -2031,6 +2713,23 @@ class AudioPlayer:
                                 self.statistics_manager.display()
                             elif ch in ('c', 'C'):
                                 self._convert_audio()
+                            elif ch == 'm':
+                                MetadataEditor.run_interactive(self.file_path)
+                            elif ch == 'p':
+                                self.pitch_control.adjust(-0.5)
+                                print(f"\n{self.pitch_control.get_status()}")
+                                self.play_from_position(self.current_position / 1000)
+                            elif ch == 'P':
+                                self.pitch_control.adjust(0.5)
+                                print(f"\n{self.pitch_control.get_status()}")
+                                self.play_from_position(self.current_position / 1000)
+                            elif ch == 'x':
+                                enabled = self.crossfade.toggle()
+                                print(f"\n交叉淡入淡出: {'开启' if enabled else '关闭'}")
+                            elif ch == 'X':
+                                self.pitch_control.reset()
+                                print(f"\n音调已重置")
+                                self.play_from_position(self.current_position / 1000)
                 finally:
                     termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
         except Exception as e:
@@ -2447,6 +3146,9 @@ def show_help():
     --radio-list        显示电台列表
     --radio-add N URL   添加电台
     --radio-del NAME    删除电台
+    --browse            打开文件浏览器选择文件
+    --noise [TYPE]      播放噪声 (white/pink/brown/rain/ocean)
+    --edit-tags FILE    编辑媒体文件元数据
 
 支持格式:
     音频: MP3, WAV, OGG, M4A, FLAC, AAC, OPUS 等
@@ -2472,6 +3174,10 @@ def show_help():
     mp --eq-list                        # 显示均衡器预设列表
     mp --convert mp3 song.flac          # 将FLAC转换为MP3
     mp --convert ogg *.wav              # 批量将WAV转换为OGG
+    mp --browse                         # 打开文件浏览器选择文件
+    mp --noise rain                     # 播放雨声噪声
+    mp --noise                          # 交互式噪声生成器
+    mp --edit-tags song.mp3             # 编辑歌曲元数据
 
 播放控制:
     空格键              暂停/继续
@@ -2502,6 +3208,11 @@ def show_help():
     Q                   显示播放队列
     S                   显示播放统计
     c                   转换当前音频格式
+    m                   编辑当前文件元数据
+    p/P                 降低/升高音调（半音）
+    X                   重置音调
+    x                   切换交叉淡入淡出
+    F                   打开文件浏览器
 
 提示:
     • 播放器会自动安装ffmpeg和pygame依赖
@@ -2600,6 +3311,9 @@ def main():
     parser.add_argument('--radio-list', action='store_true', help='显示电台列表')
     parser.add_argument('--radio-add', nargs=2, metavar=('NAME', 'URL'), help='添加电台')
     parser.add_argument('--radio-del', type=str, help='删除电台')
+    parser.add_argument('--browse', action='store_true', help='打开文件浏览器选择文件')
+    parser.add_argument('--noise', nargs='?', const='interactive', metavar='TYPE', help='播放噪声 (white/pink/brown/rain/ocean)')
+    parser.add_argument('--edit-tags', type=str, metavar='FILE', help='编辑媒体文件元数据')
     parser.add_argument('files', nargs='*', help='媒体文件路径')
     
     args = parser.parse_args()
@@ -2717,6 +3431,44 @@ def main():
         else:
             # 批量转换
             AudioConverter.batch_convert(input_files, output_format)
+        sys.exit(0)
+
+    # 处理文件浏览器
+    if args.browse:
+        browser = FileBrowser()
+        selected_files = browser.run()
+        if not selected_files:
+            print("未选择任何文件")
+            sys.exit(0)
+        
+        if len(selected_files) == 1:
+            args.files = [str(selected_files[0])]
+        else:
+            playlist = Playlist()
+            for f in selected_files:
+                playlist.add_file(f)
+            if args.shuffle:
+                playlist.shuffle()
+            play_playlist(playlist, config, args.loop or config.get('loop_mode', 'none'))
+            sys.exit(0)
+
+    # 处理噪声生成器
+    if args.noise:
+        noise_gen = NoiseGenerator()
+        if args.noise == 'interactive':
+            noise_gen.run_interactive()
+        else:
+            noise_gen.set_type(args.noise)
+            noise_gen.run_interactive()
+        sys.exit(0)
+
+    # 处理元数据编辑
+    if args.edit_tags:
+        file_path = Path(args.edit_tags)
+        if not file_path.exists():
+            print(f"错误: 文件不存在 {args.edit_tags}")
+            sys.exit(1)
+        MetadataEditor.run_interactive(file_path)
         sys.exit(0)
 
     if not args.files:
