@@ -40,6 +40,13 @@
 - 🔇 **噪声生成器** - 白噪声/粉红噪声/棕噪声/雨声/海浪，助眠专注
 - 🏷️ **元数据编辑** - 编辑媒体文件的标签信息（标题、艺术家、专辑等）
 - 🔀 **交叉淡入淡出** - 播放列表曲目间平滑过渡
+- 🎙️ **音频录制** - 从麦克风录制音频，支持 WAV/MP3/OGG/M4A/FLAC
+- 🎬 **视频转GIF** - 将视频片段转换为高质量GIF动画（调色板两步法）
+- 🎵 **音频提取** - 从视频文件提取音轨（支持批量）
+- 📸 **视频截图** - 捕获指定时间点的画面帧，支持批量均匀采样
+- 🔉 **音频归一化** - 统一音量水平（EBU R128 / 动态 / 峰值）
+- 📋 **播放列表导入导出** - M3U/M3U8 格式互转
+- 🗄️ **媒体库** - 扫描本地目录建立索引，按名称/艺术家/专辑搜索
 
 ## 🚀 快速安装
 
@@ -172,6 +179,72 @@ mp --noise ocean                    # 播放海浪声
 mp --edit-tags song.mp3             # 编辑歌曲元数据
 ```
 
+### 音频录制
+
+```bash
+mp --record                         # 交互式录制（提示文件名和时长）
+mp --record voice.mp3               # 录制并保存为MP3（Ctrl+C 停止）
+mp --record clip.wav                # 录制为WAV
+```
+
+支持格式：`wav`, `mp3`, `ogg`, `m4a`, `flac`。Linux 使用 pulse，macOS 使用 avfoundation，Windows 使用 dshow。
+
+### 音频提取（视频→音频）
+
+```bash
+mp --extract-audio video.mp4              # 从视频提取MP3音轨
+mp --extract-audio video.mkv --fmt wav    # 提取为WAV
+mp --extract-audio v1.mp4 v2.mp4 --fmt flac  # 批量提取
+```
+
+### 视频转GIF
+
+```bash
+mp --to-gif video.mp4                      # 默认截取前5秒
+mp --to-gif video.mp4 --gif-start 30 --gif-duration 3   # 从30秒起截取3秒
+mp --to-gif video.mp4 --gif-width 640 --gif-fps 20      # 自定义宽度与帧率
+```
+
+### 视频截图
+
+```bash
+mp --screenshot video.mp4                  # 截取开头画面
+mp --screenshot video.mp4 --at 60          # 在60秒处截图
+mp --screenshot video.mp4 --count 6        # 均匀截取6张到子目录
+mp --screenshot video.mp4 --at 90 --count 4  # 批量截图
+```
+
+### 音频归一化
+
+```bash
+mp --normalize song.mp3                    # EBU R128 响度归一化（推荐）
+mp --normalize *.mp3 --fmt dynaudnorm      # 批量动态归一化
+mp --normalize song.mp3 --fmt loudnorm_db  # 峰值归一化
+```
+
+可用方法：`loudnorm`（-16 LUFS）、`dynaudnorm`（平滑）、`loudnorm_db`（峰值）。默认输出 `*_norm` 文件，不覆盖原文件。
+
+### 播放列表导入导出（M3U）
+
+```bash
+mp --export-m3u my.m3u *.mp3               # 导出当前MP3为M3U
+mp --export-m3u playlist.m3u ~/Music/*.flac
+mp --import-m3u playlist.m3u              # 导入M3U并立即播放
+mp -s --import-m3u playlist.m3u           # 导入后随机播放
+```
+
+### 媒体库
+
+```bash
+mp --library-scan ~/Music                 # 扫描目录建立索引
+mp --library-scan ~/Videos                # 再次扫描会增量合并到同一索引
+mp --library-search "周杰伦"              # 搜索（匹配名称/艺术家/专辑）
+mp --library-stats                        # 查看媒体库统计
+mp --library-clear                        # 清空媒体库
+```
+
+媒体库索引保存在 `~/.config/mp/library.json`，支持增量扫描（已索引文件自动去重）。
+
 ## 🎮 播放控制
 
 ### 音频播放控制
@@ -238,6 +311,24 @@ mp --edit-tags song.mp3             # 编辑歌曲元数据
     --radio-list        显示电台列表
     --radio-add N URL   添加电台
     --radio-del NAME    删除电台
+    --record [FILE]     录制麦克风音频
+    --extract-audio VIDEO  从视频提取音轨
+    --to-gif VIDEO      视频转GIF动画
+    --screenshot VIDEO  视频截图
+    --normalize FILE... 音频音量归一化
+    --export-m3u OUT FILE...  导出M3U播放列表
+    --import-m3u FILE   导入M3U播放列表并播放
+    --library-scan DIR  扫描目录建立媒体库索引
+    --library-search Q  搜索媒体库
+    --library-stats     显示媒体库统计
+    --library-clear     清空媒体库
+    --fmt FMT           指定输出格式（提取/归一化）
+    --at N              截图时间点（秒）
+    --count N           批量截图数量
+    --gif-start N       GIF起始时间（秒）
+    --gif-duration N    GIF时长（秒）
+    --gif-width N       GIF宽度（像素）
+    --gif-fps N         GIF帧率
 ```
 
 ## 🗑️ 卸载
@@ -258,6 +349,7 @@ mp-uninstall
 - 可执行文件：`~/.local/bin/mp`
 - 配置文件：`~/.config/mp/config.json`
 - 播放列表：`~/.config/mp/playlists/`
+- 媒体库索引：`~/.config/mp/library.json`
 - 自动补全：`~/.bash_completion.d/mp` 或对应 shell 目录
 
 ## 🔧 系统要求
@@ -315,6 +407,18 @@ MIT License
 欢迎提交 Issue 和 Pull Request！
 
 ## 📝 更新日志
+
+### v2.5.0
+- 🎙️ 新增音频录制 - 从麦克风录制音频（WAV/MP3/OGG/M4A/FLAC），跨平台音频输入
+- 🎬 新增视频转GIF - 调色板两步法生成高质量GIF，可自定义起始时间/时长/宽度/帧率
+- 🎵 新增音频提取 - 从视频文件提取音轨（支持批量）
+- 📸 新增视频截图 - 捕获指定时间点画面帧，支持批量均匀采样
+- 🔉 新增音频归一化 - EBU R128 响度归一化 / 动态归一化 / 峰值归一化（支持批量）
+- 📋 新增播放列表导入导出 - M3U/M3U8 格式互转，自动读取元数据
+- 🗄️ 新增媒体库 - 扫描本地目录建立可搜索索引，按名称/艺术家/专辑搜索
+- ✨ 新增命令行选项 --record, --extract-audio, --to-gif, --screenshot, --normalize, --export-m3u, --import-m3u, --library-scan, --library-search, --library-stats, --library-clear
+- ✨ 新增附加参数 --fmt, --at, --count, --gif-start, --gif-duration, --gif-width, --gif-fps
+- 🐛 修复多个已知问题
 
 ### v2.4.0
 - 📂 新增文件浏览器 - 交互式文件浏览器，可视化选择媒体文件

@@ -263,15 +263,21 @@ install_completions() {
 _mp_completion() {
     local cur="${COMP_WORDS[COMP_CWORD]}"
     local prev="${COMP_WORDS[COMP_CWORD-1]}"
-    
+
     # 选项补全
     if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "-h --help" -- "$cur"))
+        COMPREPLY=($(compgen -W "-h --help -i --info -p --playlist -s --shuffle -l --loop -v --volume --speed --favorites --history --clear-history --stats --clear-stats --convert --eq --eq-list --radio --radio-list --radio-add --radio-del --browse --noise --edit-tags --record --extract-audio --to-gif --screenshot --normalize --export-m3u --import-m3u --library-scan --library-search --library-stats --library-clear --fmt --at --count --gif-start --gif-duration --gif-width --gif-fps" -- "$cur"))
         return 0
     fi
-    
-    # 文件补全（音频文件）
-    local files=$(compgen -f -- "$cur" | grep -E '\.(mp3|wav|ogg|m4a|flac|aac|opus|mp4|m4b)$' || true)
+
+    # --fmt 选项补全
+    if [[ "$prev" == "--fmt" ]]; then
+        COMPREPLY=($(compgen -W "mp3 wav ogg m4a flac aac opus loudnorm dynaudnorm loudnorm_db" -- "$cur"))
+        return 0
+    fi
+
+    # 文件补全（音频/视频文件）
+    local files=$(compgen -f -- "$cur" | grep -E '\.(mp3|wav|ogg|m4a|flac|aac|opus|mp4|mkv|avi|mov|webm|m4v|flv|wmv|m4b)$' || true)
     COMPREPLY=($(compgen -W "$files" -- "$cur"))
 }
 complete -F _mp_completion mp

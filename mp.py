@@ -3111,6 +3111,694 @@ class VideoPlayer:
         return f"{minutes:02d}:{seconds:02d}"
 
 
+class AudioRecorder:
+    """音频录制器 - 从麦克风录制音频"""
+
+    SUPPORTED_FORMATS = {
+        '.wav': ['-c:a', 'pcm_s16le'],
+        '.mp3': ['-c:a', 'libmp3lame', '-b:a', '192k'],
+        '.ogg': ['-c:a', 'libvorbis', '-b:a', '192k'],
+        '.m4a': ['-c:a', 'aac', '-b:a', '192k'],
+        '.flac': ['-c:a', 'flac'],
+    }
+
+    @staticmethod
+    def _find_input_device() -> List[str]:
+        """根据平台选择合适的 ffmpeg 音频输入设备"""
+        system = platform.system()
+        if system == "Linux":
+            # 优先使用 pulse，回退到 alsa default
+            return ['-f', 'pulse', '-i', 'default']
+        elif system == "Darwin":
+            # macOS 使用 avfoundation，:0 表示默认音频设备
+            return ['-f', 'avfoundation', '-i', ':0']
+        else:
+            # Windows 使用 dshow（需要用户配置设备名，这里给默认值）
+            return ['-f', 'dshow', '-i', 'audio=Microphone']
+
+    @staticmethod
+    def record(output_path: Path, duration: Optional[float] = None) -> bool:
+        """录制音频到指定文件"""
+        ext = output_path.suffix.lower()
+        if ext not in AudioRecorder.SUPPORTED_FORMATS:
+            print(f"不支持的格式: {ext}")
+            print(f"支持的格式: {', '.join(AudioRecorder.SUPPORTED_FORMATS.keys())}")
+            return False
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        cmd = ['ffmpeg', '-y', '-loglevel', 'warning']
+        cmd.extend(AudioRecorder._find_input_device())
+        if duration and duration > 0:
+            cmd.extend(['-t', str(duration)])
+        cmd.extend(AudioRecorder.SUPPORTED_FORMATS[ext])
+        cmd.append(str(output_path))
+
+        print(f"\n{'='*60}")
+        print(f"  音频录制")
+        print(f"{'='*60}")
+        print(f"  输出文件: {output_path}")
+        if duration:
+            print(f"  录制时长: {MediaInfo.format_duration(duration)}")
+        else:
+            print(f"  录制时长: 直至按 Ctrl+C 停止")
+        print(f"  按 Ctrl+C 停止录制")
+        print(f"{'='*60}\n")
+
+        try:
+            subprocess.run(cmd)
+            if output_path.exists() and output_path.stat().st_size > 0:
+                print(f"\n✓ 录制完成: {output_path}")
+                print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
+                return True
+            else:
+                print("\n✗ 录制失败：输出文件为空（请检查麦克风设备）")
+                return False
+        except KeyboardInterrupt:
+            print(f"\n停止录制")
+            if output_path.exists():
+                print(f"✓ 已保存: {output_path}")
+                return True
+            return False
+        except FileNotFoundError:
+            print("✗ 未找到 ffmpeg，请先安装")
+            return False
+        except Exception as e:
+            print(f"✗ 录制错误: {e}")
+            return False
+
+    @staticmethod
+    def run_interactive(output_path: Optional[Path] = None):
+        """交互式录制"""
+        if output_path is None:
+            print(f"\n音频录制器")
+            print(f"{'='*60}")
+            name = input("输出文件名 (默认 recording.wav): ").strip()
+            if not name:
+                name = 'recording.wav'
+            if not name.startswith('.'):
+                output_path = Path(name)
+            else:
+                output_path = Path('recording' + name)
+
+        dur_input = input("录制时长（秒，留空则手动停止）: ").strip()
+        duration = None
+        if dur_input:
+            try:
+                duration = float(dur_input)
+                if duration <= 0:
+                    duration = None
+            except ValueError:
+                print("无效的时长，将手动停止")
+
+        AudioRecorder.record(output_path, duration)
+
+
+class AudioExtractor:
+    """音频提取器 - 从视频文件提取音轨"""
+
+    SUPPORTED_FORMATS = {
+        '.mp3': ['-c:a', 'libmp3lame', '-b:a', '192k'],
+        '.wav': ['-c:a', 'pcm_s16le'],
+        '.ogg': ['-c:a', 'libvorbis', '-b:a', '192k'],
+        '.m4a': ['-c:a', 'aac', '-b:a', '192k'],
+        '.flac': ['-c:a', 'flac'],
+        '.aac': ['-c:a', 'aac', '-b:a', '192k'],
+        '.opus': ['-c:a', 'libopus', '-b:a', '128k'],
+    }
+
+    VIDEO_EXTENSIONS = {'.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v'}
+
+    @staticmethod
+    def extract(video_path: Path, output_format: str = 'mp3',
+                output_dir: Optional[Path] = None) -> bool:
+        """从视频文件提取音频"""
+        if not video_path.exists():
+            print(f"错误: 文件不存在 {video_path}")
+            return False
+
+        ext = video_path.suffix.lower()
+        if ext not in AudioExtractor.VIDEO_EXTENSIONS:
+            print(f"错误: 不是视频文件: {ext}")
+            return False
+
+        output_format = output_format.lower()
+        if not output_format.startswith('.'):
+            output_format = '.' + output_format
+        if output_format not in AudioExtractor.SUPPORTED_FORMATS:
+            print(f"不支持的音频格式: {output_format}")
+            print(f"支持: {', '.join(AudioExtractor.SUPPORTED_FORMATS.keys())}")
+            return False
+
+        if output_dir:
+            output_path = output_dir / (video_path.stem + output_format)
+        else:
+            output_path = video_path.with_suffix(output_format)
+
+        # 如果输出路径与输入相同（视频恰好是 .mp3 等极罕见情况），加后缀
+        if output_path == video_path:
+            output_path = video_path.with_name(video_path.stem + '_audio' + output_format)
+
+        print(f"提取音频: {video_path.name} → {output_path.name}")
+
+        cmd = [
+            'ffmpeg', '-y', '-loglevel', 'warning',
+            '-i', str(video_path),
+            '-vn',  # 不要视频
+        ]
+        cmd.extend(AudioExtractor.SUPPORTED_FORMATS[output_format])
+        cmd.append(str(output_path))
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and output_path.exists():
+                print(f"✓ 提取成功: {output_path.name}")
+                print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
+                return True
+            else:
+                print(f"✗ 提取失败: {result.stderr.strip() or '未知错误'}")
+                return False
+        except Exception as e:
+            print(f"✗ 错误: {e}")
+            return False
+
+    @staticmethod
+    def batch_extract(video_files: List[Path], output_format: str = 'mp3') -> int:
+        """批量提取音频"""
+        success = 0
+        total = len(video_files)
+        print(f"\n批量提取音频: {total} 个文件 → {output_format}")
+        print(f"{'='*60}")
+        for i, vf in enumerate(video_files, 1):
+            print(f"[{i}/{total}] ", end='')
+            if AudioExtractor.extract(vf, output_format):
+                success += 1
+        print(f"\n{'='*60}")
+        print(f"完成: {success}/{total} 成功")
+        return success
+
+
+class GifConverter:
+    """GIF转换器 - 将视频片段转换为GIF动画"""
+
+    @staticmethod
+    def convert(video_path: Path, output_path: Optional[Path] = None,
+                start: float = 0.0, duration: Optional[float] = None,
+                width: int = 480, fps: int = 15) -> bool:
+        """将视频片段转为GIF"""
+        if not video_path.exists():
+            print(f"错误: 文件不存在 {video_path}")
+            return False
+
+        if output_path is None:
+            output_path = video_path.with_suffix('.gif')
+
+        if duration is None or duration <= 0:
+            # 默认截取 5 秒
+            duration = 5.0
+
+        # 获取视频信息以确定起始时间合法性
+        info = MediaInfo.get_info(video_path)
+        total_duration = info.get('duration', 0)
+        if total_duration > 0 and start >= total_duration:
+            print(f"错误: 起始时间 {start}s 超出视频时长 {MediaInfo.format_duration(total_duration)}")
+            return False
+        if total_duration > 0 and start + duration > total_duration:
+            duration = max(0.1, total_duration - start)
+            print(f"提示: 已将时长调整为 {duration:.1f}s 以匹配视频长度")
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        print(f"\n转换 GIF: {video_path.name}")
+        print(f"  起始: {start:.1f}s | 时长: {duration:.1f}s | 宽度: {width}px | FPS: {fps}")
+        print(f"  输出: {output_path.name}")
+
+        # 使用 ffmpeg 的 palettegen + paletteuse 两步法生成高质量 GIF
+        palette_path = output_path.with_suffix('.palette.png')
+        try:
+            # 步骤1: 生成调色板
+            cmd1 = [
+                'ffmpeg', '-y', '-loglevel', 'warning',
+                '-ss', str(start), '-t', str(duration),
+                '-i', str(video_path),
+                '-vf', f'fps={fps},scale={width}:-1:flags=lanczos,palettegen',
+                str(palette_path)
+            ]
+            r1 = subprocess.run(cmd1, capture_output=True, text=True)
+            if r1.returncode != 0:
+                print(f"✗ 生成调色板失败: {r1.stderr.strip()}")
+                return False
+
+            # 步骤2: 应用调色板生成GIF
+            cmd2 = [
+                'ffmpeg', '-y', '-loglevel', 'warning',
+                '-ss', str(start), '-t', str(duration),
+                '-i', str(video_path), '-i', str(palette_path),
+                '-lavfi', f'fps={fps},scale={width}:-1:flags=lanczos [x]; [x][1:v] paletteuse',
+                str(output_path)
+            ]
+            r2 = subprocess.run(cmd2, capture_output=True, text=True)
+
+            # 清理调色板
+            if palette_path.exists():
+                palette_path.unlink()
+
+            if r2.returncode == 0 and output_path.exists():
+                print(f"✓ 转换成功: {output_path.name}")
+                print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
+                return True
+            else:
+                print(f"✗ 转换失败: {r2.stderr.strip()}")
+                return False
+        except Exception as e:
+            if palette_path.exists():
+                palette_path.unlink()
+            print(f"✗ 错误: {e}")
+            return False
+
+
+class ScreenshotCapture:
+    """视频截图 - 从视频捕获指定时间点的画面帧"""
+
+    @staticmethod
+    def capture(video_path: Path, timestamp: float = 0.0,
+                output_path: Optional[Path] = None) -> bool:
+        """捕获指定时间点的视频帧"""
+        if not video_path.exists():
+            print(f"错误: 文件不存在 {video_path}")
+            return False
+
+        if timestamp < 0:
+            timestamp = 0.0
+
+        if output_path is None:
+            ts_str = f"{int(timestamp // 60):02d}-{int(timestamp % 60):02d}"
+            output_path = video_path.with_name(f"{video_path.stem}_shot_{ts_str}.png")
+
+        info = MediaInfo.get_info(video_path)
+        total_duration = info.get('duration', 0)
+        if total_duration > 0 and timestamp >= total_duration:
+            print(f"错误: 时间点 {timestamp}s 超出视频时长 {MediaInfo.format_duration(total_duration)}")
+            return False
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        print(f"捕获截图: {video_path.name} @ {MediaInfo.format_duration(timestamp)}")
+
+        cmd = [
+            'ffmpeg', '-y', '-loglevel', 'warning',
+            '-ss', str(timestamp),
+            '-i', str(video_path),
+            '-frames:v', '1',
+            '-q:v', '2',  # 高质量
+            str(output_path)
+        ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and output_path.exists():
+                print(f"✓ 截图成功: {output_path.name}")
+                if info.get('width'):
+                    print(f"  分辨率: {info['width']}x{info['height']}")
+                print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
+                return True
+            else:
+                print(f"✗ 截图失败: {result.stderr.strip()}")
+                return False
+        except Exception as e:
+            print(f"✗ 错误: {e}")
+            return False
+
+    @staticmethod
+    def capture_multi(video_path: Path, count: int = 5,
+                      output_dir: Optional[Path] = None) -> int:
+        """从视频中均匀捕获多张截图"""
+        if not video_path.exists():
+            print(f"错误: 文件不存在 {video_path}")
+            return 0
+
+        info = MediaInfo.get_info(video_path)
+        total = info.get('duration', 0)
+        if total <= 0:
+            print("✗ 无法获取视频时长")
+            return 0
+
+        if count < 1:
+            count = 1
+        if count == 1:
+            ts = total / 2
+            return 1 if ScreenshotCapture.capture(video_path, ts, None) else 0
+
+        if output_dir is None:
+            output_dir = video_path.parent / f"{video_path.stem}_screenshots"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # 在 10% ~ 90% 区间均匀采样
+        success = 0
+        print(f"\n批量截图: {count} 张")
+        print(f"{'='*60}")
+        for i in range(count):
+            ratio = 0.1 + 0.8 * i / (count - 1)
+            ts = total * ratio
+            out = output_dir / f"{video_path.stem}_{i+1:02d}.png"
+            print(f"[{i+1}/{count}] ", end='')
+            if ScreenshotCapture.capture(video_path, ts, out):
+                success += 1
+        print(f"\n{'='*60}")
+        print(f"完成: {success}/{count} 张截图保存到 {output_dir}")
+        return success
+
+
+class AudioNormalizer:
+    """音频归一化 - 统一音频文件的音量水平"""
+
+    METHODS = {
+        'loudnorm': 'EBU R128 响度归一化（推荐，-16 LUFS）',
+        'dynaudnorm': '动态音频归一化（平滑）',
+        'loudnorm_db': '峰值归一化到 0dB',
+    }
+
+    @staticmethod
+    def normalize(file_path: Path, method: str = 'loudnorm',
+                  output_path: Optional[Path] = None) -> bool:
+        """归一化音频音量"""
+        if not file_path.exists():
+            print(f"错误: 文件不存在 {file_path}")
+            return False
+
+        method = method.lower()
+        if method not in AudioNormalizer.METHODS:
+            print(f"不支持的归一化方法: {method}")
+            print("可用方法:")
+            for m, desc in AudioNormalizer.METHODS.items():
+                print(f"  {m:14s} - {desc}")
+            return False
+
+        if output_path is None:
+            # 默认输出到同目录，加 _norm 后缀，避免覆盖原文件
+            output_path = file_path.with_name(file_path.stem + '_norm' + file_path.suffix)
+
+        if output_path == file_path:
+            # 输出到临时文件再替换
+            tmp = file_path.with_suffix(file_path.suffix + '.tmp_norm')
+        else:
+            tmp = output_path
+
+        # 选择滤镜
+        if method == 'loudnorm':
+            filt = 'loudnorm=I=-16:TP=-1.5:LRA=11'
+        elif method == 'dynaudnorm':
+            filt = 'dynaudnorm=f=150:g=15:p=0.9'
+        else:  # loudnorm_db
+            filt = 'loudnorm=I=-23:TP=-2:LRA=7'
+
+        print(f"归一化: {file_path.name} [{method}]")
+        cmd = [
+            'ffmpeg', '-y', '-loglevel', 'warning',
+            '-i', str(file_path),
+            '-af', filt,
+            '-c:v', 'copy',
+            str(tmp)
+        ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode != 0 or not tmp.exists():
+                print(f"✗ 归一化失败: {result.stderr.strip()}")
+                if tmp.exists():
+                    tmp.unlink()
+                return False
+
+            if output_path == file_path:
+                tmp.replace(file_path)
+                print(f"✓ 已归一化并覆盖原文件: {file_path.name}")
+            else:
+                print(f"✓ 归一化完成: {output_path.name}")
+                print(f"  文件大小: {MediaInfo.format_size(tmp.stat().st_size)}")
+            return True
+        except Exception as e:
+            if tmp.exists() and output_path != file_path:
+                tmp.unlink()
+            print(f"✗ 错误: {e}")
+            return False
+
+    @staticmethod
+    def batch_normalize(file_paths: List[Path], method: str = 'loudnorm') -> int:
+        """批量归一化"""
+        success = 0
+        total = len(file_paths)
+        print(f"\n批量归一化: {total} 个文件 [{method}]")
+        print(f"{'='*60}")
+        for i, fp in enumerate(file_paths, 1):
+            print(f"[{i}/{total}] ", end='')
+            if AudioNormalizer.normalize(fp, method):
+                success += 1
+        print(f"\n{'='*60}")
+        print(f"完成: {success}/{total} 成功")
+        return success
+
+
+class PlaylistIO:
+    """播放列表导入/导出 - 支持 M3U/M3U8 格式"""
+
+    @staticmethod
+    def export_m3u(files: List[Path], output_path: Path, playlist_name: str = 'Playlist') -> bool:
+        """导出为 M3U 播放列表文件"""
+        if not files:
+            print("错误: 播放列表为空")
+            return False
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write('#EXTM3U\n')
+                f.write(f'#PLAYLIST:{playlist_name}\n')
+                for fp in files:
+                    if not fp.exists():
+                        continue
+                    info = MediaInfo.get_info(fp)
+                    title = info.get('title') or fp.stem
+                    artist = info.get('artist', '')
+                    display = f"{artist} - {title}" if artist else title
+                    duration = int(info.get('duration', -1))
+                    f.write(f'#EXTINF:{duration},{display}\n')
+                    # 写入绝对路径
+                    f.write(str(fp.resolve()) + '\n')
+
+            print(f"✓ 已导出播放列表: {output_path}")
+            print(f"  包含 {len(files)} 个文件")
+            return True
+        except Exception as e:
+            print(f"✗ 导出失败: {e}")
+            return False
+
+    @staticmethod
+    def import_m3u(file_path: Path) -> List[Path]:
+        """从 M3U/M3U8 文件导入播放列表"""
+        if not file_path.exists():
+            print(f"错误: 文件不存在 {file_path}")
+            return []
+
+        files: List[Path] = []
+        base_dir = file_path.parent
+
+        try:
+            # 尝试多种编码
+            content = None
+            for enc in ('utf-8', 'utf-8-sig', 'gbk', 'latin-1'):
+                try:
+                    with open(file_path, 'r', encoding=enc) as f:
+                        content = f.read()
+                    break
+                except (UnicodeDecodeError, UnicodeError):
+                    continue
+
+            if content is None:
+                print("✗ 无法解码文件（请确认文件编码）")
+                return []
+
+            for line in content.splitlines():
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                p = Path(line)
+                if not p.is_absolute():
+                    p = base_dir / p
+                if p.exists():
+                    files.append(p.resolve())
+                else:
+                    print(f"  跳过（不存在）: {line}")
+
+            print(f"✓ 导入播放列表: {file_path.name}")
+            print(f"  共 {len(files)} 个有效文件")
+            return files
+        except Exception as e:
+            print(f"✗ 导入失败: {e}")
+            return []
+
+
+class MediaLibrary:
+    """媒体库 - 扫描本地媒体文件并建立可搜索索引"""
+
+    LIBRARY_FILE = CONFIG_DIR / 'library.json'
+    MEDIA_EXTENSIONS = {
+        '.mp3', '.wav', '.ogg', '.m4a', '.flac', '.aac', '.opus',
+        '.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v',
+    }
+    MAX_RESULTS = 50
+
+    def __init__(self):
+        self.library = {'files': [], 'last_scan': 0, 'scan_dirs': []}
+        self.load()
+
+    def load(self):
+        try:
+            if self.LIBRARY_FILE.exists():
+                with open(self.LIBRARY_FILE, 'r', encoding='utf-8') as f:
+                    saved = json.load(f)
+                    self.library.update(saved)
+        except Exception:
+            pass
+
+    def save(self):
+        try:
+            CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+            with open(self.LIBRARY_FILE, 'w', encoding='utf-8') as f:
+                json.dump(self.library, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
+
+    def scan(self, directory: Path, recursive: bool = True) -> int:
+        """扫描目录，建立媒体库索引"""
+        if not directory.exists() or not directory.is_dir():
+            print(f"错误: 目录不存在 {directory}")
+            return 0
+
+        # 已扫描记录去重：以路径为键
+        existing = {item['path']: item for item in self.library['files']}
+        scan_dirs = set(self.library.get('scan_dirs', []))
+        scan_dirs.add(str(directory.resolve()))
+
+        print(f"扫描目录: {directory}")
+        print(f"{'='*60}")
+
+        count = 0
+        iterator = directory.rglob('*') if recursive else directory.iterdir()
+        for fp in iterator:
+            try:
+                if not fp.is_file():
+                    continue
+                if fp.suffix.lower() not in self.MEDIA_EXTENSIONS:
+                    continue
+                abs_path = str(fp.resolve())
+                if abs_path in existing:
+                    continue
+                info = MediaInfo.get_info(fp)
+                entry = {
+                    'path': abs_path,
+                    'name': fp.name,
+                    'ext': fp.suffix.lower(),
+                    'size': fp.stat().st_size,
+                    'duration': info.get('duration', 0),
+                    'artist': info.get('artist', ''),
+                    'album': info.get('album', ''),
+                    'title': info.get('title', ''),
+                }
+                existing[abs_path] = entry
+                count += 1
+                if count % 50 == 0:
+                    print(f"  已扫描 {count} 个文件...")
+            except (PermissionError, OSError):
+                continue
+
+        self.library['files'] = list(existing.values())
+        self.library['scan_dirs'] = list(scan_dirs)
+        self.library['last_scan'] = time.time()
+        self.save()
+
+        print(f"\n✓ 本次新增 {count} 个媒体文件")
+        print(f"  媒体库总计: {len(self.library['files'])} 个文件")
+        return count
+
+    def search(self, query: str, field: str = 'all') -> List[Dict[str, Any]]:
+        """在媒体库中搜索"""
+        query_lower = query.lower()
+        results = []
+        for entry in self.library['files']:
+            if field == 'all':
+                haystack = ' '.join([
+                    entry.get('name', ''), entry.get('artist', ''),
+                    entry.get('album', ''), entry.get('title', '')
+                ]).lower()
+                if query_lower in haystack:
+                    results.append(entry)
+            else:
+                val = str(entry.get(field, '')).lower()
+                if query_lower in val:
+                    results.append(entry)
+            if len(results) >= self.MAX_RESULTS:
+                break
+        return results
+
+    def display_results(self, results: List[Dict[str, Any]]):
+        """显示搜索结果"""
+        print(f"\n{'='*60}")
+        print(f"  搜索结果 ({len(results)} 条)")
+        print(f"{'='*60}")
+        if not results:
+            print("  (无匹配结果)")
+            return
+
+        for i, entry in enumerate(results, 1):
+            path = Path(entry['path'])
+            duration = MediaInfo.format_duration(entry.get('duration', 0))
+            size = MediaInfo.format_size(entry.get('size', 0))
+            artist = entry.get('artist', '')
+            name = entry.get('title') or path.stem
+            label = f"{artist} - {name}" if artist else name
+            print(f"  {i:3d}. {label}")
+            print(f"       {path}")
+            print(f"       [{entry['ext'].upper()}] {duration} | {size}")
+
+    def display_stats(self):
+        """显示媒体库统计"""
+        files = self.library['files']
+        print(f"\n{'='*60}")
+        print(f"  媒体库统计")
+        print(f"{'='*60}")
+        print(f"  文件总数: {len(files)}")
+
+        if not files:
+            return
+
+        # 格式分布
+        by_ext: Dict[str, int] = {}
+        total_size = 0
+        total_dur = 0
+        for entry in files:
+            ext = entry.get('ext', '?')
+            by_ext[ext] = by_ext.get(ext, 0) + 1
+            total_size += entry.get('size', 0)
+            total_dur += entry.get('duration', 0)
+
+        print(f"  总大小: {MediaInfo.format_size(total_size)}")
+        print(f"  总时长: {MediaInfo.format_duration(total_dur)}")
+        print(f"\n  格式分布:")
+        for ext, cnt in sorted(by_ext.items(), key=lambda x: x[1], reverse=True):
+            print(f"    {ext.upper():6s}: {cnt}")
+
+        if self.library.get('last_scan'):
+            ts = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(self.library['last_scan']))
+            print(f"\n  上次扫描: {ts}")
+
+    def clear(self):
+        """清空媒体库"""
+        self.library = {'files': [], 'last_scan': 0, 'scan_dirs': []}
+        self.save()
+        print("✓ 媒体库已清空")
+
+
 def show_help():
     """显示帮助信息"""
     help_text = """
@@ -3149,6 +3837,17 @@ def show_help():
     --browse            打开文件浏览器选择文件
     --noise [TYPE]      播放噪声 (white/pink/brown/rain/ocean)
     --edit-tags FILE    编辑媒体文件元数据
+    --record [FILE]     录制麦克风音频 (wav/mp3/ogg/m4a/flac)
+    --extract-audio 视频  从视频提取音轨 (默认mp3)
+    --to-gif 视频       将视频片段转为GIF动画
+    --screenshot 视频   从视频捕获画面帧
+    --normalize FILE    音频音量归一化 (loudnorm/dynaudnorm)
+    --export-m3u 输出 文件...  导出M3U播放列表
+    --import-m3u FILE   导入M3U播放列表并播放
+    --library-scan 目录 扫描目录建立媒体库索引
+    --library-search 关键词  搜索媒体库
+    --library-stats     显示媒体库统计
+    --library-clear     清空媒体库
 
 支持格式:
     音频: MP3, WAV, OGG, M4A, FLAC, AAC, OPUS 等
@@ -3178,6 +3877,22 @@ def show_help():
     mp --noise rain                     # 播放雨声噪声
     mp --noise                          # 交互式噪声生成器
     mp --edit-tags song.mp3             # 编辑歌曲元数据
+    mp --record                         # 交互式录制麦克风音频
+    mp --record voice.mp3               # 录制并保存为MP3
+    mp --extract-audio video.mp4        # 从视频提取MP3音轨
+    mp --extract-audio video.mkv --fmt wav  # 提取为WAV
+    mp --to-gif video.mp4               # 视频转GIF（默认前5秒）
+    mp --to-gif video.mp4 --gif-start 30 --gif-duration 3
+    mp --screenshot video.mp4           # 截取视频开头画面
+    mp --screenshot video.mp4 --at 60   # 在60秒处截图
+    mp --screenshot video.mp4 --at 90 --count 4  # 批量截图
+    mp --normalize song.mp3             # 响度归一化
+    mp --normalize *.mp3 --fmt dynaudnorm  # 批量动态归一化
+    mp --export-m3u my.m3u *.mp3        # 导出M3U播放列表
+    mp --import-m3u playlist.m3u       # 导入并播放M3U
+    mp --library-scan ~/Music           # 扫描建立媒体库
+    mp --library-search "周杰伦"        # 搜索媒体库
+    mp --library-stats                  # 媒体库统计
 
 播放控制:
     空格键              暂停/继续
@@ -3222,7 +3937,9 @@ def show_help():
     • 书签保存在 ~/.config/mp/bookmarks.json
     • 收藏保存在 ~/.config/mp/favorites.json
     • 历史保存在 ~/.config/mp/history.json
+    • 媒体库索引保存在 ~/.config/mp/library.json
     • 歌词文件需与音频文件同名（.lrc格式）
+    • 录制/转换/截图/归一化/GIF等工具命令无需播放即可独立使用
 """
     print(help_text)
 
@@ -3314,6 +4031,25 @@ def main():
     parser.add_argument('--browse', action='store_true', help='打开文件浏览器选择文件')
     parser.add_argument('--noise', nargs='?', const='interactive', metavar='TYPE', help='播放噪声 (white/pink/brown/rain/ocean)')
     parser.add_argument('--edit-tags', type=str, metavar='FILE', help='编辑媒体文件元数据')
+    parser.add_argument('--record', nargs='?', const='interactive', metavar='FILE', help='录制麦克风音频 (wav/mp3/ogg/m4a/flac)')
+    parser.add_argument('--extract-audio', metavar='VIDEO', help='从视频提取音轨')
+    parser.add_argument('--to-gif', metavar='VIDEO', help='将视频片段转为GIF')
+    parser.add_argument('--screenshot', metavar='VIDEO', help='从视频捕获画面帧')
+    parser.add_argument('--normalize', action='store_true', help='音频音量归一化')
+    parser.add_argument('--export-m3u', metavar='OUTPUT', help='导出M3U播放列表')
+    parser.add_argument('--import-m3u', metavar='FILE', help='导入M3U播放列表并播放')
+    parser.add_argument('--library-scan', metavar='DIR', help='扫描目录建立媒体库索引')
+    parser.add_argument('--library-search', metavar='QUERY', help='搜索媒体库')
+    parser.add_argument('--library-stats', action='store_true', help='显示媒体库统计')
+    parser.add_argument('--library-clear', action='store_true', help='清空媒体库')
+    # 新功能附加参数
+    parser.add_argument('--fmt', type=str, default=None, help='指定输出格式 (用于提取/归一化)')
+    parser.add_argument('--at', type=float, default=0.0, help='截图时间点（秒）')
+    parser.add_argument('--count', type=int, default=1, help='批量截图数量')
+    parser.add_argument('--gif-start', type=float, default=0.0, dest='gif_start', help='GIF起始时间（秒）')
+    parser.add_argument('--gif-duration', type=float, default=None, dest='gif_duration', help='GIF时长（秒）')
+    parser.add_argument('--gif-width', type=int, default=480, dest='gif_width', help='GIF宽度（像素）')
+    parser.add_argument('--gif-fps', type=int, default=15, dest='gif_fps', help='GIF帧率')
     parser.add_argument('files', nargs='*', help='媒体文件路径')
     
     args = parser.parse_args()
@@ -3469,6 +4205,127 @@ def main():
             print(f"错误: 文件不存在 {args.edit_tags}")
             sys.exit(1)
         MetadataEditor.run_interactive(file_path)
+        sys.exit(0)
+
+    # ===== v2.5.0 新增功能 =====
+
+    # 音频录制
+    if args.record:
+        if args.record == 'interactive':
+            AudioRecorder.run_interactive()
+        else:
+            AudioRecorder.record(Path(args.record))
+        sys.exit(0)
+
+    # 从视频提取音频
+    if args.extract_audio:
+        video_path = Path(args.extract_audio)
+        if not video_path.exists():
+            print(f"错误: 视频文件不存在 {args.extract_audio}")
+            sys.exit(1)
+        out_format = (args.fmt or 'mp3').lstrip('.')
+        if args.files:
+            # 多个视频文件批量提取
+            video_files = [video_path] + [Path(f) for f in args.files]
+            AudioExtractor.batch_extract(video_files, out_format)
+        else:
+            AudioExtractor.extract(video_path, out_format)
+        sys.exit(0)
+
+    # 视频转GIF
+    if args.to_gif:
+        video_path = Path(args.to_gif)
+        if not video_path.exists():
+            print(f"错误: 视频文件不存在 {args.to_gif}")
+            sys.exit(1)
+        GifConverter.convert(
+            video_path,
+            output_path=None,
+            start=args.gif_start,
+            duration=args.gif_duration,
+            width=args.gif_width,
+            fps=args.gif_fps,
+        )
+        sys.exit(0)
+
+    # 视频截图
+    if args.screenshot:
+        video_path = Path(args.screenshot)
+        if not video_path.exists():
+            print(f"错误: 视频文件不存在 {args.screenshot}")
+            sys.exit(1)
+        if args.count > 1:
+            ScreenshotCapture.capture_multi(video_path, args.count)
+        else:
+            ScreenshotCapture.capture(video_path, args.at)
+        sys.exit(0)
+
+    # 音频归一化
+    if args.normalize:
+        if not args.files:
+            print("错误: 请指定要归一化的音频文件")
+            sys.exit(1)
+        method = (args.fmt or 'loudnorm').lower()
+        files = [Path(f) for f in args.files]
+        if len(files) == 1:
+            AudioNormalizer.normalize(files[0], method)
+        else:
+            AudioNormalizer.batch_normalize(files, method)
+        sys.exit(0)
+
+    # 导出M3U播放列表
+    if args.export_m3u:
+        if not args.files:
+            print("错误: 请指定要导出的媒体文件")
+            sys.exit(1)
+        files = [Path(f) for f in args.files]
+        PlaylistIO.export_m3u(files, Path(args.export_m3u))
+        sys.exit(0)
+
+    # 导入M3U播放列表
+    if args.import_m3u:
+        m3u_path = Path(args.import_m3u)
+        if not m3u_path.exists():
+            print(f"错误: 文件不存在 {args.import_m3u}")
+            sys.exit(1)
+        files = PlaylistIO.import_m3u(m3u_path)
+        if not files:
+            print("播放列表为空")
+            sys.exit(0)
+        playlist = Playlist()
+        for f in files:
+            playlist.add_file(f)
+        if args.shuffle:
+            playlist.shuffle()
+        play_playlist(playlist, config, args.loop or config.get('loop_mode', 'none'))
+        sys.exit(0)
+
+    # 媒体库扫描
+    if args.library_scan:
+        library = MediaLibrary()
+        library.scan(Path(args.library_scan))
+        sys.exit(0)
+
+    # 媒体库搜索
+    if args.library_search:
+        library = MediaLibrary()
+        if not library.library['files']:
+            print("媒体库为空，请先使用 'mp --library-scan <目录>' 扫描")
+            sys.exit(0)
+        results = library.search(args.library_search)
+        library.display_results(results)
+        sys.exit(0)
+
+    # 媒体库统计
+    if args.library_stats:
+        library = MediaLibrary()
+        library.display_stats()
+        sys.exit(0)
+
+    # 清空媒体库
+    if args.library_clear:
+        library = MediaLibrary()
+        library.clear()
         sys.exit(0)
 
     if not args.files:
