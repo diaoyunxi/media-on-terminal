@@ -47,6 +47,18 @@
 - 🔉 **音频归一化** - 统一音量水平（EBU R128 / 动态 / 峰值）
 - 📋 **播放列表导入导出** - M3U/M3U8 格式互转
 - 🗄️ **媒体库** - 扫描本地目录建立索引，按名称/艺术家/专辑搜索
+- ✂️ **媒体裁剪** - 截取音频/视频指定时间片段（流复制或重编码）
+- 🔗 **音频合并** - 将多个音频文件拼接为一个
+- ⏪ **音频反向** - 反转音频播放方向
+- 🌊 **淡入淡出** - 为音频添加淡入/淡出效果
+- 🏛️ **混响效果** - 7 种预设（房间/音乐厅/大教堂/板式/弹簧/洞穴/体育场）
+- 💬 **字幕提取** - 从视频提取 SRT/ASS 字幕轨道
+- 🥁 **BPM 检测** - 基于自相关算法检测音频节拍速度
+- 🖼️ **接触印片** - 生成视频缩略图组合（行列可调）
+- 🔍 **重复文件查找** - 基于 SHA-256 哈希查找重复媒体，可释放空间统计
+- 💾 **配置备份** - 一键备份/恢复 mp 配置（zip 格式，防 zip slip）
+- 🏷️ **批量重命名** - 基于元数据按模式重命名（支持 `{title}` `{artist}` `{album}` `{year}` `{track}` 占位符）
+- 📊 **频谱图生成** - 生成音频频谱图 PNG 图片
 
 ## 🚀 快速安装
 
@@ -245,6 +257,103 @@ mp --library-clear                        # 清空媒体库
 
 媒体库索引保存在 `~/.config/mp/library.json`，支持增量扫描（已索引文件自动去重）。
 
+### 媒体裁剪
+
+```bash
+mp --trim song.mp3 30 60              # 截取 30-60 秒片段
+mp --trim song.mp3 30                # 从 30 秒截到结尾
+mp --trim video.mp4 0 10             # 截取视频前 10 秒
+```
+
+### 音频合并
+
+```bash
+mp --merge out.mp3 a.mp3 b.mp3 c.mp3     # 合并 3 个文件为 MP3
+mp --merge out.wav a.wav b.wav --fmt wav # 指定输出格式
+```
+
+### 反向音频
+
+```bash
+mp --reverse song.mp3                 # 反向音频
+mp --reverse a.mp3 b.mp3 c.mp3         # 批量反向
+```
+
+### 淡入淡出
+
+```bash
+mp --fade song.mp3 2                   # 仅 2 秒淡入
+mp --fade song.mp3 2 3                 # 2 秒淡入 + 3 秒淡出
+```
+
+### 混响效果
+
+```bash
+mp --reverb hall song.mp3              # 应用音乐厅混响
+mp --reverb cathedral *.mp3            # 批量应用大教堂混响
+mp --reverb-list                       # 显示所有预设
+```
+
+可用预设：`room`（房间）, `hall`（音乐厅）, `cathedral`（大教堂）, `plate`（板式）, `spring`（弹簧）, `cave`（洞穴）, `stadium`（体育场）
+
+### 字幕提取
+
+```bash
+mp --extract-subtitles movie.mkv                 # 提取字幕为 SRT
+mp --extract-subtitles movie.mkv --fmt ass       # 提取为 ASS
+```
+
+### BPM 检测
+
+```bash
+mp --bpm song.mp3                      # 检测 BPM
+mp --bpm *.mp3                         # 批量检测
+```
+
+输出包含 BPM 数值和速度描述（慢板/中板/快板等）。
+
+### 视频缩略图组合
+
+```bash
+mp --contact-sheet movie.mp4           # 生成 4x4 缩略图组合
+mp --contact-sheet movie.mp4 --rows 3 --cols 5   # 3 行 5 列
+```
+
+### 重复文件查找
+
+```bash
+mp --find-duplicates ~/Music           # 查找重复（仅顶层）
+mp --find-duplicates ~/Music --recursive  # 递归子目录
+```
+
+输出包含重复组数、文件路径和可释放空间统计。
+
+### 配置备份与恢复
+
+```bash
+mp --backup-config                     # 备份到默认位置 (~/mp_config_backup_*.zip)
+mp --backup-config ~/my_backup.zip     # 备份到指定路径
+mp --restore-config ~/my_backup.zip    # 从 zip 恢复配置
+```
+
+### 批量重命名
+
+```bash
+mp --rename "{artist} - {title}" ~/Music        # 按元数据重命名
+mp --rename "{track}. {title}" ~/Music          # 带音轨号
+mp --rename "{artist}/{album}/{title}" ~/Music --recursive  # 递归
+mp --rename "{artist} - {title}" . --dry-run    # 演练模式（不实际操作）
+```
+
+可用占位符：`{title}` `{artist}` `{album}` `{year}` `{track}`，非法字符自动替换为下划线。
+
+### 频谱图生成
+
+```bash
+mp --spectrogram song.mp3                       # 生成频谱图 PNG
+mp --spectrogram song.mp3 --at 30 --gif-duration 10  # 指定起始时间和时长
+```
+
 ## 🎮 播放控制
 
 ### 音频播放控制
@@ -322,13 +431,31 @@ mp --library-clear                        # 清空媒体库
     --library-search Q  搜索媒体库
     --library-stats     显示媒体库统计
     --library-clear     清空媒体库
-    --fmt FMT           指定输出格式（提取/归一化）
+    --trim FILE START [END] 裁剪媒体文件指定时间段
+    --merge OUTPUT FILE... 合并多个音频文件
+    --reverse FILE...   反向音频（支持批量）
+    --fade FILE IN [OUT] 添加淡入淡出效果（秒）
+    --reverb [PRESET]   应用混响预设（不带参数则列出）
+    --reverb-list       显示混响预设列表
+    --extract-subtitles 视频  从视频提取字幕（srt/ass）
+    --bpm FILE...       检测音频节拍速度 BPM
+    --contact-sheet 视频  生成视频缩略图组合
+    --find-duplicates DIR  查找重复媒体文件
+    --backup-config [OUTPUT] 备份配置到zip
+    --restore-config INPUT  从zip恢复配置
+    --rename PATTERN DIR  按元数据批量重命名文件
+    --spectrogram FILE  生成音频频谱图PNG
+    --fmt FMT           指定输出格式（提取/归一化/合并/混响）
     --at N              截图时间点（秒）
     --count N           批量截图数量
     --gif-start N       GIF起始时间（秒）
-    --gif-duration N    GIF时长（秒）
+    --gif-duration N    GIF时长（秒，亦用于频谱图时长）
     --gif-width N       GIF宽度（像素）
     --gif-fps N         GIF帧率
+    --rows N            接触印片行数（默认4）
+    --cols N            接触印片列数（默认4）
+    --recursive         递归处理子目录（查找重复/重命名）
+    --dry-run           演练模式（仅重命名）
 ```
 
 ## 🗑️ 卸载
@@ -407,6 +534,23 @@ MIT License
 欢迎提交 Issue 和 Pull Request！
 
 ## 📝 更新日志
+
+### v2.7.0
+- ✂️ 新增媒体裁剪 - 截取音频/视频指定时间片段（流复制优先，失败回退重编码）
+- 🔗 新增音频合并 - 将多个音频文件拼接为一个（concat filter，支持任意格式输入）
+- ⏪ 新增音频反向 - 反转音频播放方向（支持批量）
+- 🌊 新增淡入淡出 - 为音频添加淡入/淡出效果
+- 🏛️ 新增混响效果 - 7 种预设（房间/音乐厅/大教堂/板式/弹簧/洞穴/体育场）
+- 💬 新增字幕提取 - 从视频提取 SRT/ASS 字幕轨道，自动检测语言后缀
+- 🥁 新增 BPM 检测 - 基于 PCM 自相关算法检测音频节拍速度（60-200 BPM 范围）
+- 🖼️ 新增接触印片 - 生成视频缩略图组合（行列可调，10%-90% 区间均匀采样）
+- 🔍 新增重复文件查找 - 基于 SHA-256 哈希，先按大小过滤，统计可释放空间
+- 💾 新增配置备份/恢复 - 一键 zip 备份 `~/.config/mp`，恢复时防 zip slip 攻击
+- 🏷️ 新增批量重命名 - 基于元数据按模式重命名（支持 `{title}` `{artist}` `{album}` `{year}` `{track}` 占位符），含演练模式
+- 📊 新增频谱图生成 - 通过 ffmpeg `showspectrumpic` 生成音频频谱图 PNG
+- ✨ 新增命令行选项 `--trim`, `--merge`, `--reverse`, `--fade`, `--reverb`, `--reverb-list`, `--extract-subtitles`, `--bpm`, `--contact-sheet`, `--find-duplicates`, `--backup-config`, `--restore-config`, `--rename`, `--spectrogram`
+- ✨ 新增附加参数 `--rows`, `--cols`, `--recursive`, `--dry-run`
+- 🐛 修复多个已知问题
 
 ### v2.6.0
 - ✨ 新增自动更新检查 - 启动时自动从 GitHub 获取最新版本号，发现新版本时提示用户一键更新

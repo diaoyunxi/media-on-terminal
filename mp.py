@@ -17,12 +17,16 @@ import time
 import threading
 import random
 import json
+import hashlib
+import struct
+import zipfile
+import tempfile
 import urllib.request
 import urllib.error
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 
-__version__ = "2.6.0"
+__version__ = "2.7.0"
 
 # 配置文件路径
 CONFIG_DIR = Path.home() / '.config' / 'mp'
@@ -3802,6 +3806,866 @@ class MediaLibrary:
         print("✓ 媒体库已清空")
 
 
+# ===== v2.7.0 新增工具类 =====
+
+
+class AudioTrimmer:
+    """媒体裁剪 - 提取指定时间范围的音频/视频片段"""
+
+    @staticmethod
+    def trim(file_path: Path, start: float, end: Optional[float] = None,
+             output_path: Optional[Path] = None) -> bool:
+        """裁剪媒体文件，提取 [start, end] 时间段"""
+        if not file_path.exists():
+            print(f"错误: 文件不存在 {file_path}")
+            return False
+
+        info = MediaInfo.get_info(file_path)
+        duration = info.get('duration', 0) if isinstance(info, dict) else 0
+        if duration <= 0:
+            print(f"✗ 无法读取文件时长")
+            return False
+
+        if start < 0 or start >= duration:
+            print(f"✗ 起始时间无效: {start}s（文件时长 {duration:.1f}s）")
+            return False
+
+        if end is None:
+            end = duration
+        if end <= start:
+            print(f"✗ 结束时间需大于起始时间（start={start}, end={end}）")
+            return False
+        if end > duration:
+            end = duration
+
+        if output_path is None:
+            output_path = file_path.with_name(
+                f"{file_path.stem}_trim_{int(start)}s-{int(end)}s{file_path.suffix}")
+
+        seg_duration = end - start
+        print(f"裁剪: {file_path.name} [{start:.2f}s → {end:.2f}s] (时长 {seg_duration:.2f}s)")
+
+        # 流复制保留原编码，速度快、无损
+        cmd = [
+            'ffmpeg', '-y', '-loglevel', 'warning',
+            '-ss', f'{start:.3f}',
+            '-to', f'{end:.3f}',
+            '-i', str(file_path),
+            '-c', 'copy',
+            '-avoid_negative_ts', 'make_zero',
+            str(output_path)
+        ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and output_path.exists():
+                print(f"✓ 裁剪完成: {output_path.name}")
+                print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
+                return True
+            # 流复制失败时回退到重编码
+            print(f"  流复制失败，尝试重编码...")
+            cmd = [
+                'ffmpeg', '-y', '-loglevel', 'warning',
+                '-ss', f'{start:.3f}',
+                '-to', f'{end:.3f}',
+                '-i', str(file_path),
+                str(output_path)
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and output_path.exists():
+                print(f"✓ 裁剪完成: {output_path.name}")
+                print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
+                return True
+            print(f"✗ 裁剪失败: {result.stderr.strip()}")
+            return False
+        except Exception as e:
+            print(f"✗ 错误: {e}")
+            return False
+
+
+class AudioMerger:
+    """音频合并 - 将多个音频文件合并为一个"""
+
+    @staticmethod
+    def merge(input_files: List[Path], output_path: Path,
+              output_format: Optional[str] = None) -> bool:
+        """合并多个音频文件到一个输出文件"""
+        if len(input_files) < 2:
+            print("错误: 合并至少需要 2 个文件")
+            return False
+
+        for f in input_files:
+            if not f.exists():
+                print(f"错误: 文件不存在 {f}")
+                return False
+
+        if output_format is None:
+            output_format = output_path.suffix.lstrip('.').lower()
+        if not output_format:
+            output_format = 'mp3'
+            output_path = output_path.with_suffix('.mp3')
+
+        print(f"合并 {len(input_files)} 个文件 → {output_path.name}")
+        for i, f in enumerate(input_files, 1):
+            print(f"  [{i}/{len(input_files)}] {f.name}")
+
+        cmd = ['ffmpeg', '-y', '-loglevel', 'warning']
+        for f in input_files:
+            cmd.extend(['-i', str(f)])
+
+        # concat filter：拼接所有音频输入
+        filter_inputs = ''.join(f'[{i}:a]' for i in range(len(input_files)))
+        filter_complex = f"{filter_inputs}concat=n={len(input_files)}:v=0:a=1[a]"
+
+        # 输出编码参数
+        fmt_args = AudioConverter.SUPPORTED_FORMATS.get(f'.{output_format}',
+                                                       ['-c:a', 'libmp3lame', '-b:a', '192k'])
+
+        cmd.extend([
+            '-filter_complex', filter_complex,
+            '-map', '[a]',
+        ] + fmt_args + [str(output_path)])
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and output_path.exists():
+                print(f"✓ 合并完成: {output_path.name}")
+                print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
+                return True
+            print(f"✗ 合并失败: {result.stderr.strip()}")
+            return False
+        except Exception as e:
+            print(f"✗ 错误: {e}")
+            return False
+
+
+class AudioReverser:
+    """音频反向 - 反转音频播放方向"""
+
+    @staticmethod
+    def reverse(file_path: Path, output_path: Optional[Path] = None) -> bool:
+        """反转音频播放方向"""
+        if not file_path.exists():
+            print(f"错误: 文件不存在 {file_path}")
+            return False
+
+        if output_path is None:
+            output_path = file_path.with_name(f"{file_path.stem}_reversed{file_path.suffix}")
+
+        print(f"反向: {file_path.name}")
+        cmd = [
+            'ffmpeg', '-y', '-loglevel', 'warning',
+            '-i', str(file_path),
+            '-map', '0:a',
+            '-af', 'areverse',
+            str(output_path)
+        ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and output_path.exists():
+                print(f"✓ 反向完成: {output_path.name}")
+                print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
+                return True
+            print(f"✗ 反向失败: {result.stderr.strip()}")
+            return False
+        except Exception as e:
+            print(f"✗ 错误: {e}")
+            return False
+
+    @staticmethod
+    def batch_reverse(file_paths: List[Path]) -> int:
+        success = 0
+        total = len(file_paths)
+        print(f"\n批量反向: {total} 个文件")
+        print(f"{'='*60}")
+        for i, fp in enumerate(file_paths, 1):
+            print(f"[{i}/{total}] ", end='')
+            if AudioReverser.reverse(fp):
+                success += 1
+        print(f"\n{'='*60}")
+        print(f"完成: {success}/{total} 成功")
+        return success
+
+
+class FadeEffect:
+    """淡入淡出 - 为音频添加淡入和淡出效果"""
+
+    @staticmethod
+    def apply_fade(file_path: Path, fade_in: float = 0.0, fade_out: float = 0.0,
+                   output_path: Optional[Path] = None) -> bool:
+        """添加淡入/淡出效果
+        fade_in: 淡入时长（秒）
+        fade_out: 淡出时长（秒）
+        """
+        if not file_path.exists():
+            print(f"错误: 文件不存在 {file_path}")
+            return False
+
+        if fade_in <= 0 and fade_out <= 0:
+            print("✗ 请指定淡入或淡出时长（>0）")
+            return False
+
+        info = MediaInfo.get_info(file_path)
+        duration = info.get('duration', 0) if isinstance(info, dict) else 0
+        if duration <= 0:
+            print("✗ 无法读取音频时长")
+            return False
+
+        if fade_in + fade_out >= duration:
+            print(f"✗ 淡入淡出总时长 ({fade_in + fade_out}s) 超过音频时长 ({duration:.2f}s)")
+            return False
+
+        if output_path is None:
+            output_path = file_path.with_name(f"{file_path.stem}_fade{file_path.suffix}")
+
+        filters = []
+        if fade_in > 0:
+            filters.append(f"afade=t=in:st=0:d={fade_in:.3f}")
+        if fade_out > 0:
+            fade_out_start = duration - fade_out
+            filters.append(f"afade=t=out:st={fade_out_start:.3f}:d={fade_out:.3f}")
+
+        af = ','.join(filters)
+        print(f"淡入淡出: {file_path.name} (in={fade_in}s, out={fade_out}s)")
+
+        cmd = [
+            'ffmpeg', '-y', '-loglevel', 'warning',
+            '-i', str(file_path),
+            '-af', af,
+            '-c:v', 'copy',
+            str(output_path)
+        ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and output_path.exists():
+                print(f"✓ 淡入淡出完成: {output_path.name}")
+                print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
+                return True
+            print(f"✗ 失败: {result.stderr.strip()}")
+            return False
+        except Exception as e:
+            print(f"✗ 错误: {e}")
+            return False
+
+
+class ReverbEffect:
+    """混响效果 - 为音频添加混响/回声"""
+
+    PRESETS = {
+        'room':       ('房间',       'aecho=0.8:0.9:1000:0.3'),
+        'hall':       ('音乐厅',     'aecho=0.8:0.9:2000:0.4'),
+        'cathedral':  ('大教堂',     'aecho=0.8:0.9:3000:0.5'),
+        'plate':      ('板式混响',   'aecho=0.6:0.7:500:0.4'),
+        'spring':     ('弹簧混响',   'aecho=0.5:0.6:200:0.5'),
+        'cave':       ('洞穴',       'aecho=0.9:0.95:5000:0.6'),
+        'stadium':    ('体育场',     'aecho=0.85:0.92:4000:0.55'),
+    }
+
+    @staticmethod
+    def list_presets():
+        print(f"\n可用混响预设:")
+        print(f"{'='*40}")
+        for name, (desc, _) in ReverbEffect.PRESETS.items():
+            print(f"  {name:12s} - {desc}")
+        print(f"{'='*40}\n")
+
+    @staticmethod
+    def apply_reverb(file_path: Path, preset: str = 'room',
+                     output_path: Optional[Path] = None) -> bool:
+        """应用混响预设"""
+        if not file_path.exists():
+            print(f"错误: 文件不存在 {file_path}")
+            return False
+
+        preset = preset.lower()
+        if preset not in ReverbEffect.PRESETS:
+            print(f"✗ 未知预设: {preset}")
+            print("使用 --reverb-list 查看可用预设")
+            return False
+
+        if output_path is None:
+            output_path = file_path.with_name(f"{file_path.stem}_{preset}{file_path.suffix}")
+
+        desc, filt = ReverbEffect.PRESETS[preset]
+        print(f"混响: {file_path.name} [{preset}] ({desc})")
+
+        cmd = [
+            'ffmpeg', '-y', '-loglevel', 'warning',
+            '-i', str(file_path),
+            '-af', filt,
+            '-c:v', 'copy',
+            str(output_path)
+        ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and output_path.exists():
+                print(f"✓ 混响完成: {output_path.name}")
+                print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
+                return True
+            print(f"✗ 失败: {result.stderr.strip()}")
+            return False
+        except Exception as e:
+            print(f"✗ 错误: {e}")
+            return False
+
+
+class SubtitleExtractor:
+    """字幕提取 - 从视频文件提取字幕轨道"""
+
+    @staticmethod
+    def list_streams(video_path: Path) -> List[Dict[str, Any]]:
+        """列出视频中所有字幕流"""
+        cmd = [
+            'ffprobe', '-v', 'quiet',
+            '-print_format', 'json',
+            '-show_streams', '-select_streams', 's',
+            str(video_path)
+        ]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0:
+                data = json.loads(result.stdout)
+                return data.get('streams', [])
+        except Exception:
+            pass
+        return []
+
+    @staticmethod
+    def extract(video_path: Path, stream_index: Optional[int] = None,
+                output_format: str = 'srt',
+                output_path: Optional[Path] = None) -> bool:
+        """从视频提取字幕
+        stream_index: 字幕流索引（0-based），None 表示第一个字幕流
+        output_format: srt 或 ass
+        """
+        if not video_path.exists():
+            print(f"错误: 文件不存在 {video_path}")
+            return False
+
+        streams = SubtitleExtractor.list_streams(video_path)
+        if not streams:
+            print(f"✗ 未找到字幕轨道: {video_path.name}")
+            return False
+
+        if stream_index is None:
+            stream_index = 0
+        if stream_index >= len(streams):
+            print(f"✗ 字幕流索引超出范围 (0-{len(streams)-1})")
+            return False
+
+        stream = streams[stream_index]
+        # ffprobe 返回的 index 是绝对索引（包含视频/音频流）
+        abs_index = stream.get('index', 0)
+        codec = stream.get('codec_name', 'unknown')
+        lang = stream.get('tags', {}).get('language', '未知')
+
+        if output_path is None:
+            suffix = '.srt' if output_format == 'srt' else '.ass'
+            lang_suffix = f".{lang}" if lang and lang != '未知' else ""
+            output_path = video_path.with_suffix(f"{lang_suffix}{suffix}")
+
+        print(f"提取字幕: {video_path.name}")
+        print(f"  字幕流 #{stream_index}: 编码={codec}, 语言={lang}")
+
+        # 选择输出编码
+        if output_format == 'ass':
+            codec_args = ['-c:s', 'ass']
+        else:
+            codec_args = ['-c:s', 'srt']
+
+        cmd = [
+            'ffmpeg', '-y', '-loglevel', 'warning',
+            '-i', str(video_path),
+            '-map', f'0:{abs_index}',
+        ] + codec_args + [str(output_path)]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and output_path.exists():
+                size = output_path.stat().st_size
+                if size == 0:
+                    print(f"✗ 字幕为空")
+                    output_path.unlink()
+                    return False
+                print(f"✓ 提取完成: {output_path.name}")
+                print(f"  文件大小: {MediaInfo.format_size(size)}")
+                return True
+            print(f"✗ 提取失败: {result.stderr.strip()}")
+            return False
+        except Exception as e:
+            print(f"✗ 错误: {e}")
+            return False
+
+
+class BPMDetector:
+    """BPM 检测 - 通过自相关检测音频节拍速度"""
+
+    MIN_BPM = 60
+    MAX_BPM = 200
+
+    @staticmethod
+    def detect(file_path: Path) -> Optional[float]:
+        """检测音频 BPM（每分钟节拍数）"""
+        if not file_path.exists():
+            print(f"错误: 文件不存在 {file_path}")
+            return None
+
+        # 提取为单声道 8kHz 16-bit PCM
+        cmd = [
+            'ffmpeg', '-y', '-loglevel', 'quiet',
+            '-i', str(file_path),
+            '-ac', '1', '-ar', '8000',
+            '-f', 's16le', '-'
+        ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True)
+            if result.returncode != 0 or not result.stdout:
+                print("✗ 无法读取音频数据")
+                return None
+
+            data = result.stdout
+            n_samples = len(data) // 2
+            if n_samples < 8000:
+                print("✗ 音频太短，无法检测")
+                return None
+
+            samples = struct.unpack(f'<{n_samples}h', data)
+
+            # 计算能量包络（每 128 样本一个能量值，约 16ms）
+            window = 128
+            energy = []
+            for i in range(0, len(samples) - window, window):
+                e = sum(s * s for s in samples[i:i + window]) / window
+                energy.append(e)
+
+            if not energy:
+                return None
+
+            # 去除直流分量
+            avg = sum(energy) / len(energy)
+            energy = [e - avg for e in energy]
+
+            # 能量采样率
+            energy_rate = 8000.0 / window  # ~62.5 Hz
+            min_lag = max(1, int(60 * energy_rate / BPMDetector.MAX_BPM))
+            max_lag = int(60 * energy_rate / BPMDetector.MIN_BPM)
+            max_lag = min(max_lag, len(energy) - 1)
+
+            best_lag = 0
+            best_corr = -1.0
+            for lag in range(min_lag, max_lag + 1):
+                if lag >= len(energy):
+                    break
+                corr = 0.0
+                for i in range(len(energy) - lag):
+                    corr += energy[i] * energy[i + lag]
+                if corr > best_corr:
+                    best_corr = corr
+                    best_lag = lag
+
+            if best_lag == 0:
+                return None
+
+            bpm = 60.0 * energy_rate / best_lag
+            return round(bpm, 1)
+        except Exception as e:
+            print(f"✗ 检测失败: {e}")
+            return None
+
+    @staticmethod
+    def detect_and_display(file_path: Path):
+        print(f"\n分析: {file_path.name}")
+        print(f"{'='*50}")
+        bpm = BPMDetector.detect(file_path)
+        if bpm is not None:
+            print(f"  BPM: {bpm}")
+            if bpm < 70:
+                desc = "慢板（缓慢抒情）"
+            elif bpm < 90:
+                desc = "中慢板"
+            elif bpm < 110:
+                desc = "中板"
+            elif bpm < 130:
+                desc = "中快板"
+            elif bpm < 160:
+                desc = "快板（流行/摇滚节奏）"
+            else:
+                desc = "极快板（电子/舞曲）"
+            print(f"  速度: {desc}")
+        print(f"{'='*50}")
+
+
+class ContactSheet:
+    """接触印片 - 生成视频缩略图组合"""
+
+    @staticmethod
+    def generate(video_path: Path, rows: int = 4, cols: int = 4,
+                 output_path: Optional[Path] = None,
+                 width: int = 320) -> bool:
+        """生成视频缩略图组合"""
+        if not video_path.exists():
+            print(f"错误: 文件不存在 {video_path}")
+            return False
+
+        if rows < 1 or cols < 1:
+            print("✗ 行列数必须 ≥1")
+            return False
+
+        info = MediaInfo.get_info(video_path)
+        duration = info.get('duration', 0) if isinstance(info, dict) else 0
+        if duration <= 0:
+            print("✗ 无法读取视频时长")
+            return False
+
+        if output_path is None:
+            output_path = video_path.with_suffix('.contact_sheet.png')
+
+        total = rows * cols
+        # 在视频 10%-90% 区间均匀采样，避免黑屏开头/结尾
+        sample_duration = duration * 0.8
+        if sample_duration <= 0:
+            print("✗ 视频时长太短")
+            return False
+
+        fps = total / sample_duration
+        start_time = duration * 0.1
+
+        print(f"生成缩略图组合: {rows}×{cols} = {total} 张 (各 {width}px 宽)")
+
+        cmd = [
+            'ffmpeg', '-y', '-loglevel', 'warning',
+            '-ss', f'{start_time:.3f}',
+            '-i', str(video_path),
+            '-t', f'{sample_duration:.3f}',
+            '-vf', f'fps={fps:.6f},scale={width}:-1,tile={cols}x{rows}',
+            '-frames:v', '1',
+            '-q:v', '3',
+            str(output_path)
+        ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and output_path.exists():
+                print(f"✓ 缩略图组合已生成: {output_path.name}")
+                print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
+                return True
+            print(f"✗ 生成失败: {result.stderr.strip()}")
+            return False
+        except Exception as e:
+            print(f"✗ 错误: {e}")
+            return False
+
+
+class DuplicateFinder:
+    """重复文件查找 - 基于内容哈希查找重复媒体文件"""
+
+    MEDIA_EXTENSIONS = {
+        '.mp3', '.wav', '.ogg', '.m4a', '.flac', '.aac', '.opus',
+        '.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v',
+    }
+
+    @staticmethod
+    def _file_hash(file_path: Path, chunk_size: int = 65536) -> str:
+        """计算文件 SHA-256 哈希（先按大小过滤）"""
+        h = hashlib.sha256()
+        with open(file_path, 'rb') as f:
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+                h.update(chunk)
+        return h.hexdigest()
+
+    @staticmethod
+    def find(directory: Path, recursive: bool = True) -> Dict[str, List[Path]]:
+        """查找重复文件，返回 {hash: [paths]} 字典（仅包含重复项）"""
+        if not directory.exists() or not directory.is_dir():
+            print(f"错误: 目录不存在 {directory}")
+            return {}
+
+        # 先按大小分组，相同大小再算哈希（避免无谓的哈希计算）
+        size_map: Dict[int, List[Path]] = {}
+        glob_pattern = '**/*' if recursive else '*'
+        for entry in directory.glob(glob_pattern):
+            if not entry.is_file():
+                continue
+            if entry.suffix.lower() not in DuplicateFinder.MEDIA_EXTENSIONS:
+                continue
+            try:
+                size = entry.stat().st_size
+            except OSError:
+                continue
+            size_map.setdefault(size, []).append(entry)
+
+        # 只对相同大小的文件计算哈希
+        hash_map: Dict[str, List[Path]] = {}
+        for size, paths in size_map.items():
+            if len(paths) < 2:
+                continue
+            for p in paths:
+                try:
+                    h = DuplicateFinder._file_hash(p)
+                except Exception:
+                    continue
+                hash_map.setdefault(h, []).append(p)
+
+        # 仅返回有重复的
+        return {h: ps for h, ps in hash_map.items() if len(ps) > 1}
+
+    @staticmethod
+    def find_and_display(directory: Path, recursive: bool = True) -> int:
+        duplicates = DuplicateFinder.find(directory, recursive)
+        if not duplicates:
+            print(f"\n✓ 未发现重复文件: {directory}")
+            return 0
+
+        total_dupes = sum(len(ps) - 1 for ps in duplicates.values())
+        print(f"\n发现 {len(duplicates)} 组重复文件，共 {total_dupes} 个冗余文件")
+        print(f"{'='*70}")
+        waste = 0
+        for i, (h, paths) in enumerate(duplicates.items(), 1):
+            size = paths[0].stat().st_size
+            waste += size * (len(paths) - 1)
+            print(f"\n[组 {i}] 哈希: {h[:16]}... ({MediaInfo.format_size(size)} × {len(paths)})")
+            for p in paths:
+                print(f"  {p}")
+        print(f"\n{'='*70}")
+        print(f"可释放空间: {MediaInfo.format_size(waste)}")
+        return total_dupes
+
+
+class ConfigBackup:
+    """配置备份 - 备份和恢复 mp 配置（zip）"""
+
+    @staticmethod
+    def backup(output_path: Optional[Path] = None) -> bool:
+        """备份整个 ~/.config/mp 配置目录到 zip"""
+        if not CONFIG_DIR.exists():
+            print(f"✗ 配置目录不存在: {CONFIG_DIR}")
+            return False
+
+        if output_path is None:
+            ts = time.strftime('%Y%m%d_%H%M%S')
+            output_path = Path.home() / f"mp_config_backup_{ts}.zip"
+        elif output_path.is_dir():
+            ts = time.strftime('%Y%m%d_%H%M%S')
+            output_path = output_path / f"mp_config_backup_{ts}.zip"
+
+        if not output_path.suffix:
+            output_path = output_path.with_suffix('.zip')
+        elif output_path.suffix.lower() != '.zip':
+            output_path = output_path.with_suffix('.zip')
+
+        print(f"备份配置: {CONFIG_DIR} → {output_path}")
+
+        file_count = 0
+        try:
+            with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                for f in CONFIG_DIR.rglob('*'):
+                    if f.is_file():
+                        arcname = f.relative_to(CONFIG_DIR)
+                        zf.write(f, arcname)
+                        file_count += 1
+            if file_count == 0:
+                print("✗ 配置目录为空，未创建备份")
+                if output_path.exists():
+                    output_path.unlink()
+                return False
+            print(f"✓ 备份完成: {output_path.name}")
+            print(f"  包含 {file_count} 个文件")
+            print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
+            return True
+        except Exception as e:
+            print(f"✗ 备份失败: {e}")
+            return False
+
+    @staticmethod
+    def restore(input_path: Path) -> bool:
+        """从 zip 文件恢复配置"""
+        if not input_path.exists():
+            print(f"错误: 文件不存在 {input_path}")
+            return False
+
+        if input_path.suffix.lower() != '.zip':
+            print(f"✗ 仅支持 .zip 备份文件")
+            return False
+
+        print(f"恢复配置: {input_path} → {CONFIG_DIR}")
+
+        try:
+            with zipfile.ZipFile(input_path, 'r') as zf:
+                # 安全检查：阻止 zip slip 攻击
+                members = zf.namelist()
+                for m in members:
+                    target = (CONFIG_DIR / m).resolve()
+                    if not str(target).startswith(str(CONFIG_DIR.resolve())):
+                        print(f"✗ 检测到非法路径: {m}")
+                        return False
+                # 确保目录存在
+                CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+                zf.extractall(CONFIG_DIR)
+            file_count = len(members)
+            print(f"✓ 恢复完成: {file_count} 个文件")
+            return True
+        except Exception as e:
+            print(f"✗ 恢复失败: {e}")
+            return False
+
+
+class BatchRenamer:
+    """批量重命名 - 基于媒体元数据重命名文件"""
+
+    SUPPORTED_PLACEHOLDERS = ['{title}', '{artist}', '{album}', '{year}', '{track}']
+
+    @staticmethod
+    def _sanitize(name: str) -> str:
+        """去除文件名中的非法字符"""
+        if not name:
+            return ''
+        for ch in '/\\:*?"<>|':
+            name = name.replace(ch, '_')
+        return name.strip()
+
+    @staticmethod
+    def rename_in_directory(directory: Path, pattern: str = '{artist} - {title}',
+                             recursive: bool = False,
+                             dry_run: bool = False) -> int:
+        """按模式重命名目录中的媒体文件
+        pattern 支持占位符: {title} {artist} {album} {year} {track}
+        """
+        if not directory.exists() or not directory.is_dir():
+            print(f"错误: 目录不存在 {directory}")
+            return 0
+
+        if not any(ph in pattern for ph in BatchRenamer.SUPPORTED_PLACEHOLDERS):
+            print(f"✗ 模式不包含任何占位符")
+            print(f"  可用占位符: {', '.join(BatchRenamer.SUPPORTED_PLACEHOLDERS)}")
+            return 0
+
+        glob_pattern = '**/*' if recursive else '*'
+        count = 0
+        skipped = 0
+        for entry in directory.glob(glob_pattern):
+            if not entry.is_file():
+                continue
+            if entry.suffix.lower() not in AudioExtractor.VIDEO_EXTENSIONS and \
+               entry.suffix.lower() not in AudioConverter.SUPPORTED_FORMATS:
+                continue
+
+            info = MediaInfo.get_info(entry)
+            title = info.get('title', '') or entry.stem
+            artist = info.get('artist', '') or 'Unknown'
+            album = info.get('album', '') or ''
+
+            # 从 ffprobe tags 中提取 year 和 track
+            year = ''
+            track = ''
+            try:
+                cmd = [
+                    'ffprobe', '-v', 'quiet',
+                    '-print_format', 'json', '-show_format',
+                    str(entry)
+                ]
+                r = subprocess.run(cmd, capture_output=True, text=True)
+                if r.returncode == 0:
+                    data = json.loads(r.stdout)
+                    tags = data.get('format', {}).get('tags', {})
+                    for k in ('date', 'DATE', 'year', 'YEAR'):
+                        if k in tags:
+                            year = str(tags[k])[:4]
+                            break
+                    for k in ('track', 'TRACK', 'TRCK'):
+                        if k in tags:
+                            track = str(tags[k]).split('/')[0]
+                            break
+            except Exception:
+                pass
+
+            new_name = pattern.format(
+                title=BatchRenamer._sanitize(title),
+                artist=BatchRenamer._sanitize(artist),
+                album=BatchRenamer._sanitize(album),
+                year=BatchRenamer._sanitize(year),
+                track=BatchRenamer._sanitize(track),
+            ).strip() or entry.stem
+
+            # 限制文件名长度
+            if len(new_name) > 200:
+                new_name = new_name[:200]
+
+            new_path = entry.with_name(new_name + entry.suffix)
+            if new_path == entry:
+                skipped += 1
+                continue
+            if new_path.exists():
+                print(f"  ✗ 跳过（目标已存在）: {entry.name} → {new_path.name}")
+                skipped += 1
+                continue
+
+            if dry_run:
+                print(f"  [DRY] {entry.name} → {new_path.name}")
+            else:
+                try:
+                    entry.rename(new_path)
+                    print(f"  ✓ {entry.name} → {new_path.name}")
+                except Exception as e:
+                    print(f"  ✗ 失败: {entry.name} - {e}")
+                    skipped += 1
+                    continue
+            count += 1
+
+        action = "将重命名" if dry_run else "已重命名"
+        print(f"\n{action} {count} 个文件，跳过 {skipped} 个")
+        return count
+
+
+class SpectrogramGenerator:
+    """频谱图生成 - 生成音频频谱图图片"""
+
+    @staticmethod
+    def generate(file_path: Path, output_path: Optional[Path] = None,
+                 start: float = 0.0, duration: Optional[float] = None,
+                 size: str = '1024x512') -> bool:
+        """生成音频频谱图 PNG"""
+        if not file_path.exists():
+            print(f"错误: 文件不存在 {file_path}")
+            return False
+
+        if output_path is None:
+            output_path = file_path.with_suffix('.spectrogram.png')
+
+        print(f"生成频谱图: {file_path.name}")
+
+        cmd = ['ffmpeg', '-y', '-loglevel', 'warning']
+        if start > 0:
+            cmd.extend(['-ss', str(start)])
+        cmd.extend(['-i', str(file_path)])
+        if duration is not None:
+            cmd.extend(['-t', str(duration)])
+
+        cmd.extend([
+            '-lavfi', f'showspectrumpic=s={size}:legend=1:color=intensity',
+            '-frames:v', '1',
+            str(output_path)
+        ])
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and output_path.exists():
+                print(f"✓ 频谱图已生成: {output_path.name}")
+                print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
+                return True
+            print(f"✗ 生成失败: {result.stderr.strip()}")
+            return False
+        except Exception as e:
+            print(f"✗ 错误: {e}")
+            return False
+
+
 def show_help():
     """显示帮助信息"""
     help_text = """
@@ -3851,6 +4715,20 @@ def show_help():
     --library-search 关键词  搜索媒体库
     --library-stats     显示媒体库统计
     --library-clear     清空媒体库
+    --trim FILE START [END] 裁剪媒体文件指定时间段
+    --merge OUTPUT FILE... 合并多个音频文件
+    --reverse FILE...   反向音频（支持批量）
+    --fade FILE IN [OUT] 添加淡入淡出效果（秒）
+    --reverb [PRESET]   应用混响预设（需要先指定文件）
+    --reverb-list       显示混响预设列表
+    --extract-subtitles 视频  从视频提取字幕（srt/ass）
+    --bpm FILE...       检测音频节拍速度 BPM（支持批量）
+    --contact-sheet 视频  生成视频缩略图组合
+    --find-duplicates 目录  查找重复媒体文件
+    --backup-config [输出] 备份配置到zip
+    --restore-config 输入  从zip恢复配置
+    --rename PATTERN 目录  按元数据批量重命名文件
+    --spectrogram FILE  生成音频频谱图PNG
 
 支持格式:
     音频: MP3, WAV, OGG, M4A, FLAC, AAC, OPUS 等
@@ -3896,6 +4774,24 @@ def show_help():
     mp --library-scan ~/Music           # 扫描建立媒体库
     mp --library-search "周杰伦"        # 搜索媒体库
     mp --library-stats                  # 媒体库统计
+    mp --trim song.mp3 30 60            # 截取 30-60 秒片段
+    mp --trim video.mp4 0 10            # 截取视频前10秒
+    mp --merge out.mp3 a.mp3 b.mp3 c.mp3  # 合并三个文件
+    mp --reverse song.mp3               # 反向音频
+    mp --fade song.mp3 2 3              # 2秒淡入 + 3秒淡出
+    mp --reverb hall song.mp3           # 应用音乐厅混响
+    mp --reverb-list                    # 显示混响预设
+    mp --extract-subtitles movie.mkv    # 提取字幕
+    mp --extract-subtitles movie.mkv --fmt ass  # 提取为ASS
+    mp --bpm song.mp3                   # 检测BPM
+    mp --contact-sheet movie.mp4        # 生成4x4缩略图
+    mp --contact-sheet movie.mp4 --rows 3 --cols 5
+    mp --find-duplicates ~/Music        # 查找重复音频
+    mp --backup-config                  # 备份配置到 ~/mp_config_backup_*.zip
+    mp --restore-config backup.zip      # 恢复配置
+    mp --rename "{artist} - {title}" ~/Music  # 按元数据重命名
+    mp --rename "{track}. {title}" . --dry-run  # 演练模式
+    mp --spectrogram song.mp3           # 生成频谱图
 
 播放控制:
     空格键              暂停/继续
@@ -4161,6 +5057,37 @@ def main():
     parser.add_argument('--gif-duration', type=float, default=None, dest='gif_duration', help='GIF时长（秒）')
     parser.add_argument('--gif-width', type=int, default=480, dest='gif_width', help='GIF宽度（像素）')
     parser.add_argument('--gif-fps', type=int, default=15, dest='gif_fps', help='GIF帧率')
+    # ===== v2.7.0 新增参数 =====
+    parser.add_argument('--trim', nargs='+', metavar=('FILE', 'TIME'),
+                        help='裁剪媒体文件: --trim FILE START [END]')
+    parser.add_argument('--merge', nargs='+', metavar=('OUTPUT', 'FILE'),
+                        help='合并音频文件: --merge OUTPUT FILE [FILE...]')
+    parser.add_argument('--reverse', action='store_true', help='反向音频（操作 args.files）')
+    parser.add_argument('--fade', nargs='+', metavar=('FILE', 'SEC'),
+                        help='淡入淡出: --fade FILE IN_SEC [OUT_SEC]')
+    parser.add_argument('--reverb', nargs='?', const='__list__', metavar='PRESET',
+                        help='应用混响预设（仅指定时列出预设）')
+    parser.add_argument('--reverb-list', action='store_true', help='显示混响预设列表')
+    parser.add_argument('--extract-subtitles', metavar='VIDEO', dest='extract_subtitles',
+                        help='从视频提取字幕')
+    parser.add_argument('--bpm', action='store_true', help='检测音频 BPM（操作 args.files）')
+    parser.add_argument('--contact-sheet', metavar='VIDEO', dest='contact_sheet',
+                        help='生成视频缩略图组合')
+    parser.add_argument('--rows', type=int, default=4, help='接触印片行数')
+    parser.add_argument('--cols', type=int, default=4, help='接触印片列数')
+    parser.add_argument('--find-duplicates', metavar='DIR', dest='find_duplicates',
+                        help='查找重复媒体文件')
+    parser.add_argument('--backup-config', nargs='?', const='__default__',
+                        metavar='OUTPUT', help='备份配置到zip')
+    parser.add_argument('--restore-config', metavar='INPUT', dest='restore_config',
+                        help='从zip恢复配置')
+    parser.add_argument('--rename', nargs=2, metavar=('PATTERN', 'DIR'),
+                        help='按元数据批量重命名: --rename PATTERN DIR')
+    parser.add_argument('--dry-run', action='store_true', dest='dry_run',
+                        help='演练模式（不实际操作）')
+    parser.add_argument('--spectrogram', metavar='FILE', help='生成音频频谱图PNG')
+    parser.add_argument('--recursive', action='store_true',
+                        help='递归处理子目录（用于查找重复/重命名）')
     parser.add_argument('files', nargs='*', help='媒体文件路径')
     
     args = parser.parse_args()
@@ -4437,6 +5364,169 @@ def main():
     if args.library_clear:
         library = MediaLibrary()
         library.clear()
+        sys.exit(0)
+
+    # ===== v2.7.0 新增命令处理 =====
+
+    # 媒体裁剪
+    if args.trim:
+        if len(args.trim) < 2:
+            print("错误: 用法 --trim FILE START [END]")
+            sys.exit(1)
+        file_path = Path(args.trim[0])
+        if not file_path.exists():
+            print(f"错误: 文件不存在 {args.trim[0]}")
+            sys.exit(1)
+        try:
+            start = float(args.trim[1])
+        except ValueError:
+            print(f"错误: 起始时间无效: {args.trim[1]}")
+            sys.exit(1)
+        end = None
+        if len(args.trim) >= 3:
+            try:
+                end = float(args.trim[2])
+            except ValueError:
+                print(f"错误: 结束时间无效: {args.trim[2]}")
+                sys.exit(1)
+        AudioTrimmer.trim(file_path, start, end)
+        sys.exit(0)
+
+    # 音频合并
+    if args.merge:
+        if len(args.merge) < 3:
+            print("错误: 用法 --merge OUTPUT FILE [FILE...]")
+            print("至少需要 1 个输出文件 + 2 个输入文件")
+            sys.exit(1)
+        output_path = Path(args.merge[0])
+        input_files = [Path(f) for f in args.merge[1:]]
+        output_fmt = args.fmt
+        AudioMerger.merge(input_files, output_path, output_fmt)
+        sys.exit(0)
+
+    # 反向音频
+    if args.reverse:
+        if not args.files:
+            print("错误: 请指定要反向的音频文件")
+            sys.exit(1)
+        files = [Path(f) for f in args.files]
+        if len(files) == 1:
+            AudioReverser.reverse(files[0])
+        else:
+            AudioReverser.batch_reverse(files)
+        sys.exit(0)
+
+    # 淡入淡出
+    if args.fade:
+        if len(args.fade) < 2:
+            print("错误: 用法 --fade FILE IN_SEC [OUT_SEC]")
+            sys.exit(1)
+        file_path = Path(args.fade[0])
+        if not file_path.exists():
+            print(f"错误: 文件不存在 {args.fade[0]}")
+            sys.exit(1)
+        try:
+            fade_in = float(args.fade[1])
+        except ValueError:
+            print(f"错误: 淡入时长无效: {args.fade[1]}")
+            sys.exit(1)
+        fade_out = 0.0
+        if len(args.fade) >= 3:
+            try:
+                fade_out = float(args.fade[2])
+            except ValueError:
+                print(f"错误: 淡出时长无效: {args.fade[2]}")
+                sys.exit(1)
+        # OUT_SEC 也可能来自 --at
+        if fade_out == 0.0 and args.at > 0:
+            fade_out = args.at
+        FadeEffect.apply_fade(file_path, fade_in, fade_out)
+        sys.exit(0)
+
+    # 混响预设列表
+    if args.reverb_list or args.reverb == '__list__':
+        ReverbEffect.list_presets()
+        sys.exit(0)
+
+    # 应用混响
+    if args.reverb and args.reverb != '__list__':
+        if not args.files:
+            print("错误: 请指定要应用混响的音频文件")
+            sys.exit(1)
+        preset = args.reverb
+        for f in args.files:
+            ReverbEffect.apply_reverb(Path(f), preset)
+        sys.exit(0)
+
+    # 提取字幕
+    if args.extract_subtitles:
+        video_path = Path(args.extract_subtitles)
+        if not video_path.exists():
+            print(f"错误: 视频文件不存在 {args.extract_subtitles}")
+            sys.exit(1)
+        out_fmt = (args.fmt or 'srt').lower()
+        SubtitleExtractor.extract(video_path, stream_index=None,
+                                  output_format=out_fmt)
+        sys.exit(0)
+
+    # BPM 检测
+    if args.bpm:
+        if not args.files:
+            print("错误: 请指定要检测的音频文件")
+            sys.exit(1)
+        for f in args.files:
+            BPMDetector.detect_and_display(Path(f))
+        sys.exit(0)
+
+    # 视频缩略图组合
+    if args.contact_sheet:
+        video_path = Path(args.contact_sheet)
+        if not video_path.exists():
+            print(f"错误: 视频文件不存在 {args.contact_sheet}")
+            sys.exit(1)
+        ContactSheet.generate(video_path, rows=args.rows, cols=args.cols)
+        sys.exit(0)
+
+    # 查找重复文件
+    if args.find_duplicates:
+        directory = Path(args.find_duplicates)
+        DuplicateFinder.find_and_display(directory, recursive=args.recursive)
+        sys.exit(0)
+
+    # 备份配置
+    if args.backup_config:
+        if args.backup_config == '__default__':
+            output = None
+        else:
+            output = Path(args.backup_config)
+        ConfigBackup.backup(output)
+        sys.exit(0)
+
+    # 恢复配置
+    if args.restore_config:
+        ConfigBackup.restore(Path(args.restore_config))
+        sys.exit(0)
+
+    # 批量重命名
+    if args.rename:
+        pattern, directory = args.rename
+        BatchRenamer.rename_in_directory(
+            Path(directory), pattern,
+            recursive=args.recursive,
+            dry_run=args.dry_run
+        )
+        sys.exit(0)
+
+    # 频谱图
+    if args.spectrogram:
+        file_path = Path(args.spectrogram)
+        if not file_path.exists():
+            print(f"错误: 文件不存在 {args.spectrogram}")
+            sys.exit(1)
+        duration = args.gif_duration if args.gif_duration is not None else None
+        SpectrogramGenerator.generate(file_path,
+                                      start=args.at,
+                                      duration=duration)
         sys.exit(0)
 
     if not args.files:
