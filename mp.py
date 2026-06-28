@@ -17,9 +17,12 @@ import time
 import threading
 import random
 import json
+import urllib.request
+import urllib.error
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 
+__version__ = "2.6.0"
 
 # 配置文件路径
 CONFIG_DIR = Path.home() / '.config' / 'mp'
@@ -3994,6 +3997,114 @@ def play_playlist(playlist: Playlist, config: Config, loop: str = 'none'):
             current_file = next_file
 
 
+# --- GitHub 自动更新检查 ---
+GITHUB_REPO = "diaoyunxi/media-on-terminal"
+
+def _fetch_latest_version_github():
+    """从 GitHub 获取最新版本号（优先 Releases，回退 Tags）"""
+    import urllib.request
+    import urllib.error
+
+    # 尝试 Releases API
+    try:
+        url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+        req = urllib.request.Request(url, headers={"User-Agent": "mp-player"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+            return data.get("tag_name"), data.get("html_url")
+    except Exception:
+        pass
+
+    # 回退到 Tags API
+    try:
+        url = f"https://api.github.com/repos/{GITHUB_REPO}/tags"
+        req = urllib.request.Request(url, headers={"User-Agent": "mp-player"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+            if data:
+                tag = data[0].get("name")
+                return tag, f"https://github.com/{GITHUB_REPO}/releases/tag/{tag}"
+    except Exception:
+        pass
+
+    return None, None
+
+
+def _compare_versions(v1, v2):
+    """比较两个版本号"""
+    parts1 = v1.lstrip('v').split('.')
+    parts2 = v2.lstrip('v').split('.')
+    for i in range(max(len(parts1), len(parts2))):
+        try:
+            a = int(parts1[i]) if i < len(parts1) else 0
+            b = int(parts2[i]) if i < len(parts2) else 0
+            if a > b:
+                return 1
+            if a < b:
+                return -1
+        except ValueError:
+            return 0
+    return 0
+
+
+def check_for_update():
+    """检查 GitHub 上是否有新版本，如有则询问用户是否更新"""
+    try:
+        latest, release_url = _fetch_latest_version_github()
+        if not latest:
+            return
+
+        if _compare_versions(latest, __version__) <= 0:
+            return
+
+        print(f"\n{'='*50}")
+        print(f"  发现新版本！")
+        print(f"  当前版本: v{__version__}")
+        print(f"  最新版本: {latest}")
+        print(f"{'='*50}")
+        print(f"更新内容请查看: {release_url}")
+
+        try:
+            choice = input("\n是否立即更新？(y/N): ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            return
+
+        if choice == 'y':
+            print("正在更新...")
+            # 尝试 git pull
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            if os.path.isdir(os.path.join(script_dir, '.git')):
+                result = subprocess.run(
+                    ['git', 'pull'],
+                    cwd=script_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                if result.returncode == 0:
+                    print("更新成功！请重新运行程序。")
+                    sys.exit(0)
+                else:
+                    print(f"git pull 失败: {result.stderr}")
+
+            # 回退：下载最新的 mp.py
+            try:
+                raw_url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/mp.py"
+                req = urllib.request.Request(raw_url, headers={"User-Agent": "mp-player"})
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    content = resp.read()
+                with open(__file__, 'wb') as f:
+                    f.write(content)
+                print("更新成功！请重新运行程序。")
+                sys.exit(0)
+            except Exception as e:
+                print(f"自动更新失败: {e}")
+                print(f"请手动访问 {release_url} 下载最新版本")
+    except Exception as e:
+        # 更新检查失败不应影响正常使用
+        pass
+
+
 def main():
     # 处理帮助命令
     if len(sys.argv) > 1 and sys.argv[1] in ['-h', '--help']:
@@ -4429,4 +4540,5 @@ def main():
 
 
 if __name__ == "__main__":
+    check_for_update()
     main()
