@@ -59,6 +59,13 @@
 - 💾 **配置备份** - 一键备份/恢复 mp 配置（zip 格式，防 zip slip）
 - 🏷️ **批量重命名** - 基于元数据按模式重命名（支持 `{title}` `{artist}` `{album}` `{year}` `{track}` 占位符）
 - 📊 **频谱图生成** - 生成音频频谱图 PNG 图片
+- 🌊 **波形图生成** - 生成音频波形图 PNG 图片（分声道展示）
+- 🖼️ **封面提取** - 从音频/视频文件提取嵌入的封面或海报图片
+- 🔊 **音量增益** - 以分贝(dB)为单位调整音量，支持批量
+- 📱 **铃声生成** - 截取片段并添加淡入淡出，生成铃声（默认30秒）
+- 🔈 **声道转换** - 单声道/立体声互转，支持批量
+- 🎚️ **采样率转换** - 转换音频采样率（Hz），支持批量
+- 🎞️ **音视频合成** - 将音频合并到视频（替换原音轨）
 
 ## 🚀 快速安装
 
@@ -354,6 +361,68 @@ mp --spectrogram song.mp3                       # 生成频谱图 PNG
 mp --spectrogram song.mp3 --at 30 --gif-duration 10  # 指定起始时间和时长
 ```
 
+### 波形图生成
+
+```bash
+mp --waveform song.mp3                          # 生成波形图 PNG
+mp --waveform song.mp3 --at 30 --gif-duration 10  # 指定起始时间和时长
+```
+
+### 封面提取
+
+```bash
+mp --cover song.mp3                             # 提取嵌入的封面图片
+mp --cover movie.mkv                            # 提取视频海报
+```
+
+### 音量增益
+
+```bash
+mp --gain 3 song.mp3                            # 音量增益 +3 dB
+mp --gain -2 song.mp3                           # 音量降低 -2 dB
+mp --gain 5 *.mp3                               # 批量增益 +5 dB
+```
+
+增益范围 -60 ~ +30 dB，输出 `*_gainp{N}dB` / `*_gainn{N}dB` 文件，不覆盖原文件。
+
+### 铃声生成
+
+```bash
+mp --ringtone song.mp3                          # 从头截取30秒铃声
+mp --ringtone song.mp3 45                       # 从45秒起截取30秒
+mp --ringtone song.mp3 45 20                    # 从45秒起截取20秒
+mp --ringtone song.mp3 0 30 --fade-sec 1.5      # 1.5秒淡入淡出
+```
+
+默认 30 秒、2 秒淡入淡出，输出 `*_ringtone` 文件。
+
+### 声道转换
+
+```bash
+mp --channels 1 song.mp3                        # 转为单声道
+mp --channels 2 song.mp3                        # 转为立体声
+mp --channels 1 *.mp3                           # 批量转单声道
+```
+
+仅支持 `1`（单声道）/ `2`（立体声），输出 `*_mono` / `*_stereo` 文件。
+
+### 采样率转换
+
+```bash
+mp --resample 44100 song.mp3                    # 转换为 44100 Hz
+mp --resample 48000 *.mp3                       # 批量转换为 48000 Hz
+```
+
+常用采样率：8000 / 16000 / 22050 / 32000 / 44100 / 48000 / 96000 / 192000，输出 `*_{RATE}Hz` 文件。
+
+### 音视频合成
+
+```bash
+mp --mux video.mp4 bgm.mp3                      # 用 bgm 替换视频原音轨
+```
+
+视频流复制（无损），音频重编码为 AAC 192k，输出 `*_muxed` 文件。
+
 ## 🎮 播放控制
 
 ### 音频播放控制
@@ -445,6 +514,14 @@ mp --spectrogram song.mp3 --at 30 --gif-duration 10  # 指定起始时间和时�
     --restore-config INPUT  从zip恢复配置
     --rename PATTERN DIR  按元数据批量重命名文件
     --spectrogram FILE  生成音频频谱图PNG
+    --waveform FILE     生成音频波形图PNG
+    --cover FILE        提取嵌入的封面/海报图片
+    --gain DB FILE...   音量增益(dB)，支持批量
+    --ringtone FILE [START [DURATION]]  生成铃声（默认30秒，带淡入淡出）
+    --channels N FILE... 转换声道数 1(单声道)/2(立体声)
+    --resample RATE FILE... 转换采样率(Hz)，支持批量
+    --mux VIDEO AUDIO   将音频合并到视频（替换原音轨）
+    --fade-sec N        铃声淡入淡出时长（秒，默认2.0）
     --fmt FMT           指定输出格式（提取/归一化/合并/混响）
     --at N              截图时间点（秒）
     --count N           批量截图数量
@@ -534,6 +611,17 @@ MIT License
 欢迎提交 Issue 和 Pull Request！
 
 ## 📝 更新日志
+
+### v2.8.0
+- 🌊 新增波形图生成 - 通过 ffmpeg `showwavespic` 生成音频波形图 PNG（分声道展示）
+- 🖼️ 新增封面提取 - 自动识别 attached_pic/单帧视频流，从音频/视频提取封面或海报
+- 🔊 新增音量增益 - 以分贝(dB)为单位调整音量（-60~+30 dB），支持批量
+- 📱 新增铃声生成 - 截取指定片段并添加淡入淡出，默认 30 秒，可自定义起始/时长/淡入淡出
+- 🔈 新增声道转换 - 单声道/立体声互转，支持批量
+- 🎚️ 新增采样率转换 - 转换音频采样率（Hz），支持批量
+- 🎞️ 新增音视频合成 - 将音频合并到视频（视频流复制无损，音频重编码 AAC 192k）
+- ✨ 新增命令行选项 `--waveform`, `--cover`, `--gain`, `--ringtone`, `--channels`, `--resample`, `--mux`, `--fade-sec`
+- 🐛 修复多个已知问题
 
 ### v2.7.0
 - ✂️ 新增媒体裁剪 - 截取音频/视频指定时间片段（流复制优先，失败回退重编码）

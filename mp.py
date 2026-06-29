@@ -26,7 +26,7 @@ import urllib.error
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 
-__version__ = "2.7.0"
+__version__ = "2.8.0"
 
 # 配置文件路径
 CONFIG_DIR = Path.home() / '.config' / 'mp'
@@ -4666,6 +4666,443 @@ class SpectrogramGenerator:
             return False
 
 
+class WaveformGenerator:
+    """波形图生成 - 生成音频波形图图片"""
+
+    @staticmethod
+    def generate(file_path: Path, output_path: Optional[Path] = None,
+                 start: float = 0.0, duration: Optional[float] = None,
+                 size: str = '1280x240') -> bool:
+        """生成音频波形图 PNG"""
+        if not file_path.exists():
+            print(f"错误: 文件不存在 {file_path}")
+            return False
+
+        if output_path is None:
+            output_path = file_path.with_suffix('.waveform.png')
+
+        print(f"生成波形图: {file_path.name}")
+
+        cmd = ['ffmpeg', '-y', '-loglevel', 'warning']
+        if start > 0:
+            cmd.extend(['-ss', str(start)])
+        cmd.extend(['-i', str(file_path)])
+        if duration is not None:
+            cmd.extend(['-t', str(duration)])
+
+        cmd.extend([
+            '-filter_complex',
+            f'showwavespic=s={size}:colors=white|0x4a90d2:split_channels=1',
+            '-frames:v', '1',
+            str(output_path)
+        ])
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and output_path.exists():
+                print(f"✓ 波形图已生成: {output_path.name}")
+                print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
+                return True
+            print(f"✗ 生成失败: {result.stderr.strip()}")
+            return False
+        except Exception as e:
+            print(f"✗ 错误: {e}")
+            return False
+
+
+class CoverExtractor:
+    """封面提取 - 从音频/视频文件提取嵌入的封面或海报图片"""
+
+    @staticmethod
+    def _find_cover_stream(file_path: Path) -> Optional[int]:
+        """查找封面/海报流（abs index），未找到返回 None"""
+        cmd = [
+            'ffprobe', '-v', 'quiet',
+            '-print_format', 'json',
+            '-show_streams', str(file_path)
+        ]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                return None
+            data = json.loads(result.stdout)
+            for stream in data.get('streams', []):
+                if stream.get('codec_type') == 'video':
+                    # 嵌入封面通常是 mjpeg/png 且只有一帧
+                    codec = stream.get('codec_name', '')
+                    nb_frames = stream.get('nb_frames', '')
+                    disposition = stream.get('disposition', {})
+                    if disposition.get('attached_pic') == 1 or codec in ('mjpeg', 'png'):
+                        return stream.get('index')
+                    if nb_frames == '1':
+                        return stream.get('index')
+        except Exception:
+            pass
+        return None
+
+    @staticmethod
+    def extract(file_path: Path, output_path: Optional[Path] = None) -> bool:
+        """提取封面/海报图片"""
+        if not file_path.exists():
+            print(f"错误: 文件不存在 {file_path}")
+            return False
+
+        stream_index = CoverExtractor._find_cover_stream(file_path)
+        if stream_index is None:
+            print(f"✗ 未找到嵌入的封面/海报: {file_path.name}")
+            return False
+
+        if output_path is None:
+            output_path = file_path.with_suffix('.cover.png')
+
+        print(f"提取封面: {file_path.name}")
+
+        cmd = [
+            'ffmpeg', '-y', '-loglevel', 'warning',
+            '-i', str(file_path),
+            '-map', f'0:{stream_index}',
+            '-frames:v', '1',
+            str(output_path)
+        ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and output_path.exists() and output_path.stat().st_size > 0:
+                print(f"✓ 封面已提取: {output_path.name}")
+                print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
+                return True
+            print(f"✗ 提取失败: {result.stderr.strip()}")
+            return False
+        except Exception as e:
+            print(f"✗ 错误: {e}")
+            return False
+
+
+class VolumeGain:
+    """音量增益 - 以分贝(dB)为单位调整音量"""
+
+    @staticmethod
+    def apply(file_path: Path, gain_db: float,
+              output_path: Optional[Path] = None) -> bool:
+        """对音频应用音量增益"""
+        if not file_path.exists():
+            print(f"错误: 文件不存在 {file_path}")
+            return False
+
+        if gain_db < -60 or gain_db > 30:
+            print(f"✗ 增益超出范围 (-60 ~ +30 dB): {gain_db}")
+            return False
+
+        if output_path is None:
+            sign = 'p' if gain_db >= 0 else 'n'
+            output_path = file_path.with_name(
+                f"{file_path.stem}_gain{sign}{abs(gain_db):.1f}dB{file_path.suffix}")
+
+        print(f"音量增益: {file_path.name} ({gain_db:+.1f} dB)")
+
+        cmd = [
+            'ffmpeg', '-y', '-loglevel', 'warning',
+            '-i', str(file_path),
+            '-af', f'volume={gain_db:+.2f}dB',
+            '-c:v', 'copy',
+            str(output_path)
+        ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and output_path.exists():
+                print(f"✓ 完成: {output_path.name}")
+                print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
+                return True
+            print(f"✗ 失败: {result.stderr.strip()}")
+            return False
+        except Exception as e:
+            print(f"✗ 错误: {e}")
+            return False
+
+    @staticmethod
+    def batch_apply(files: List[Path], gain_db: float) -> int:
+        """批量应用音量增益"""
+        success = 0
+        total = len(files)
+        print(f"\n批量音量增益: {total} 个文件 ({gain_db:+.1f} dB)")
+        print(f"{'='*60}")
+        for i, f in enumerate(files, 1):
+            print(f"[{i}/{total}] ", end='')
+            if VolumeGain.apply(f, gain_db):
+                success += 1
+        print(f"\n{'='*60}")
+        print(f"完成: {success}/{total} 成功")
+        return success
+
+
+class RingtoneMaker:
+    """铃声生成 - 截取片段并添加淡入淡出，生成铃声"""
+
+    DEFAULT_DURATION = 30.0
+    DEFAULT_FADE = 2.0
+
+    @staticmethod
+    def make(file_path: Path, start: float = 0.0,
+             duration: Optional[float] = None,
+             fade: float = 2.0,
+             output_path: Optional[Path] = None) -> bool:
+        """从媒体文件生成铃声"""
+        if not file_path.exists():
+            print(f"错误: 文件不存在 {file_path}")
+            return False
+
+        info = MediaInfo.get_info(file_path)
+        total = info.get('duration', 0) if isinstance(info, dict) else 0
+        if total <= 0:
+            print(f"✗ 无法读取文件时长")
+            return False
+
+        if duration is None:
+            duration = RingtoneMaker.DEFAULT_DURATION
+        if start < 0:
+            start = 0.0
+        if start >= total:
+            print(f"✗ 起始时间超出文件时长 ({total:.1f}s)")
+            return False
+        if start + duration > total:
+            duration = total - start
+
+        if output_path is None:
+            output_path = file_path.with_name(
+                f"{file_path.stem}_ringtone{file_path.suffix}")
+
+        fade_in = min(fade, duration / 2)
+        fade_out = min(fade, duration / 2)
+
+        print(f"生成铃声: {file_path.name} [{start:.1f}s +{duration:.1f}s]")
+
+        cmd = [
+            'ffmpeg', '-y', '-loglevel', 'warning',
+            '-ss', f'{start:.3f}',
+            '-t', f'{duration:.3f}',
+            '-i', str(file_path),
+            '-af',
+            f'afade=t=in:st=0:d={fade_in:.2f},'
+            f'afade=t=out:st={duration - fade_out:.2f}:d={fade_out:.2f}',
+            '-c:v', 'copy',
+            str(output_path)
+        ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and output_path.exists():
+                print(f"✓ 铃声已生成: {output_path.name}")
+                print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
+                return True
+            # 视频流复制可能因 af 失败，回退重编码
+            cmd_fallback = [
+                'ffmpeg', '-y', '-loglevel', 'warning',
+                '-ss', f'{start:.3f}',
+                '-t', f'{duration:.3f}',
+                '-i', str(file_path),
+                '-af',
+                f'afade=t=in:st=0:d={fade_in:.2f},'
+                f'afade=t=out:st={duration - fade_out:.2f}:d={fade_out:.2f}',
+                str(output_path)
+            ]
+            result = subprocess.run(cmd_fallback, capture_output=True, text=True)
+            if result.returncode == 0 and output_path.exists():
+                print(f"✓ 铃声已生成: {output_path.name}")
+                print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
+                return True
+            print(f"✗ 失败: {result.stderr.strip()}")
+            return False
+        except Exception as e:
+            print(f"✗ 错误: {e}")
+            return False
+
+
+class ChannelConverter:
+    """声道转换 - 转换音频声道数"""
+
+    @staticmethod
+    def convert(file_path: Path, channels: int,
+                output_path: Optional[Path] = None) -> bool:
+        """转换音频声道数 (1=单声道, 2=立体声)"""
+        if not file_path.exists():
+            print(f"错误: 文件不存在 {file_path}")
+            return False
+
+        if channels not in (1, 2):
+            print(f"✗ 仅支持 1(单声道) 或 2(立体声)，当前: {channels}")
+            return False
+
+        if output_path is None:
+            label = 'mono' if channels == 1 else 'stereo'
+            output_path = file_path.with_name(
+                f"{file_path.stem}_{label}{file_path.suffix}")
+
+        label = '单声道' if channels == 1 else '立体声'
+        print(f"声道转换: {file_path.name} → {label}")
+
+        cmd = [
+            'ffmpeg', '-y', '-loglevel', 'warning',
+            '-i', str(file_path),
+            '-ac', str(channels),
+            '-c:v', 'copy',
+            str(output_path)
+        ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and output_path.exists():
+                print(f"✓ 完成: {output_path.name}")
+                print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
+                return True
+            print(f"✗ 失败: {result.stderr.strip()}")
+            return False
+        except Exception as e:
+            print(f"✗ 错误: {e}")
+            return False
+
+    @staticmethod
+    def batch_convert(files: List[Path], channels: int) -> int:
+        """批量转换声道数"""
+        success = 0
+        total = len(files)
+        label = '单声道' if channels == 1 else '立体声'
+        print(f"\n批量声道转换: {total} 个文件 → {label}")
+        print(f"{'='*60}")
+        for i, f in enumerate(files, 1):
+            print(f"[{i}/{total}] ", end='')
+            if ChannelConverter.convert(f, channels):
+                success += 1
+        print(f"\n{'='*60}")
+        print(f"完成: {success}/{total} 成功")
+        return success
+
+
+class SampleRateConverter:
+    """采样率转换 - 转换音频采样率"""
+
+    COMMON_RATES = [8000, 16000, 22050, 32000, 44100, 48000, 96000, 192000]
+
+    @staticmethod
+    def convert(file_path: Path, sample_rate: int,
+                output_path: Optional[Path] = None) -> bool:
+        """转换音频采样率"""
+        if not file_path.exists():
+            print(f"错误: 文件不存在 {file_path}")
+            return False
+
+        if sample_rate < 1000 or sample_rate > 384000:
+            print(f"✗ 采样率超出范围: {sample_rate} Hz")
+            return False
+
+        if output_path is None:
+            output_path = file_path.with_name(
+                f"{file_path.stem}_{sample_rate}Hz{file_path.suffix}")
+
+        print(f"采样率转换: {file_path.name} → {sample_rate} Hz")
+
+        cmd = [
+            'ffmpeg', '-y', '-loglevel', 'warning',
+            '-i', str(file_path),
+            '-ar', str(sample_rate),
+            '-c:v', 'copy',
+            str(output_path)
+        ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and output_path.exists():
+                print(f"✓ 完成: {output_path.name}")
+                print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
+                return True
+            print(f"✗ 失败: {result.stderr.strip()}")
+            return False
+        except Exception as e:
+            print(f"✗ 错误: {e}")
+            return False
+
+    @staticmethod
+    def batch_convert(files: List[Path], sample_rate: int) -> int:
+        """批量转换采样率"""
+        success = 0
+        total = len(files)
+        print(f"\n批量采样率转换: {total} 个文件 → {sample_rate} Hz")
+        print(f"{'='*60}")
+        for i, f in enumerate(files, 1):
+            print(f"[{i}/{total}] ", end='')
+            if SampleRateConverter.convert(f, sample_rate):
+                success += 1
+        print(f"\n{'='*60}")
+        print(f"完成: {success}/{total} 成功")
+        return success
+
+
+class AVMuxer:
+    """音视频合成 - 将音频合并到视频（替换或作为新音轨）"""
+
+    @staticmethod
+    def mux(video_path: Path, audio_path: Path,
+            output_path: Optional[Path] = None,
+            replace: bool = True) -> bool:
+        """将音频合并到视频
+        replace=True 替换原音轨；False 则同时保留原音轨
+        """
+        if not video_path.exists():
+            print(f"错误: 视频文件不存在 {video_path}")
+            return False
+        if not audio_path.exists():
+            print(f"错误: 音频文件不存在 {audio_path}")
+            return False
+
+        if output_path is None:
+            output_path = video_path.with_name(
+                f"{video_path.stem}_muxed{video_path.suffix}")
+
+        print(f"音视频合成: {video_path.name} + {audio_path.name}")
+
+        if replace:
+            # 用新音频替换原音轨，视频流复制
+            cmd = [
+                'ffmpeg', '-y', '-loglevel', 'warning',
+                '-i', str(video_path),
+                '-i', str(audio_path),
+                '-map', '0:v:0',
+                '-map', '1:a:0',
+                '-c:v', 'copy',
+                '-c:a', 'aac',
+                '-b:a', '192k',
+                '-shortest',
+                str(output_path)
+            ]
+        else:
+            # 保留原音轨并加入新音轨
+            cmd = [
+                'ffmpeg', '-y', '-loglevel', 'warning',
+                '-i', str(video_path),
+                '-i', str(audio_path),
+                '-map', '0:v:0',
+                '-map', '0:a:0?',
+                '-map', '1:a:0',
+                '-c:v', 'copy',
+                '-c:a', 'aac',
+                '-b:a', '192k',
+                '-shortest',
+                str(output_path)
+            ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and output_path.exists():
+                print(f"✓ 合成完成: {output_path.name}")
+                print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
+                return True
+            print(f"✗ 失败: {result.stderr.strip()}")
+            return False
+        except Exception as e:
+            print(f"✗ 错误: {e}")
+            return False
+
+
 def show_help():
     """显示帮助信息"""
     help_text = """
@@ -4729,6 +5166,14 @@ def show_help():
     --restore-config 输入  从zip恢复配置
     --rename PATTERN 目录  按元数据批量重命名文件
     --spectrogram FILE  生成音频频谱图PNG
+    --waveform FILE     生成音频波形图PNG
+    --cover FILE        提取嵌入的封面/海报图片
+    --gain DB FILE...   音量增益(dB)，支持批量
+    --ringtone FILE [START [DURATION]]  生成铃声（默认30秒，带淡入淡出）
+    --channels N FILE... 转换声道数 1(单声道)/2(立体声)
+    --resample RATE FILE... 转换采样率(Hz)
+    --mux VIDEO AUDIO   将音频合并到视频（替换原音轨）
+    --fade-sec N        铃声淡入淡出时长（秒，默认2.0）
 
 支持格式:
     音频: MP3, WAV, OGG, M4A, FLAC, AAC, OPUS 等
@@ -4792,6 +5237,16 @@ def show_help():
     mp --rename "{artist} - {title}" ~/Music  # 按元数据重命名
     mp --rename "{track}. {title}" . --dry-run  # 演练模式
     mp --spectrogram song.mp3           # 生成频谱图
+    mp --waveform song.mp3              # 生成波形图
+    mp --cover song.mp3                 # 提取嵌入封面
+    mp --gain 3 song.mp3                # 音量增益 +3dB
+    mp --gain -2 *.mp3                  # 批量降低音量
+    mp --ringtone song.mp3              # 生成30秒铃声（从头开始）
+    mp --ringtone song.mp3 30 20        # 从30秒起截取20秒铃声
+    mp --channels 1 song.mp3            # 转为单声道
+    mp --channels 2 *.mp3               # 批量转立体声
+    mp --resample 44100 song.mp3        # 转换采样率为44100Hz
+    mp --mux video.mp4 bgm.mp3          # 用bgm替换视频音轨
 
 播放控制:
     空格键              暂停/继续
@@ -5088,6 +5543,21 @@ def main():
     parser.add_argument('--spectrogram', metavar='FILE', help='生成音频频谱图PNG')
     parser.add_argument('--recursive', action='store_true',
                         help='递归处理子目录（用于查找重复/重命名）')
+    # ===== v2.8.0 新增参数 =====
+    parser.add_argument('--waveform', metavar='FILE', help='生成音频波形图PNG')
+    parser.add_argument('--cover', metavar='FILE', help='提取嵌入的封面/海报图片')
+    parser.add_argument('--gain', type=float, metavar='DB',
+                        help='音量增益(dB)（操作 args.files，支持批量）')
+    parser.add_argument('--ringtone', nargs='+', metavar=('FILE', 'START'),
+                        help='生成铃声 [--ringtone FILE [START [DURATION]]]')
+    parser.add_argument('--channels', type=int, metavar='N',
+                        help='转换声道数 1(单声道)/2(立体声)（操作 args.files）')
+    parser.add_argument('--resample', type=int, metavar='RATE',
+                        help='转换采样率(Hz)（操作 args.files，支持批量）')
+    parser.add_argument('--mux', nargs=2, metavar=('VIDEO', 'AUDIO'),
+                        help='将音频合并到视频（替换原音轨）')
+    parser.add_argument('--fade-sec', type=float, default=2.0, dest='fade_sec',
+                        help='铃声淡入淡出时长（秒，默认2.0）')
     parser.add_argument('files', nargs='*', help='媒体文件路径')
     
     args = parser.parse_args()
@@ -5527,6 +5997,107 @@ def main():
         SpectrogramGenerator.generate(file_path,
                                       start=args.at,
                                       duration=duration)
+        sys.exit(0)
+
+    # ===== v2.8.0 新增命令处理 =====
+
+    # 波形图
+    if args.waveform:
+        file_path = Path(args.waveform)
+        if not file_path.exists():
+            print(f"错误: 文件不存在 {args.waveform}")
+            sys.exit(1)
+        duration = args.gif_duration if args.gif_duration is not None else None
+        WaveformGenerator.generate(file_path,
+                                   start=args.at,
+                                   duration=duration)
+        sys.exit(0)
+
+    # 封面提取
+    if args.cover:
+        file_path = Path(args.cover)
+        if not file_path.exists():
+            print(f"错误: 文件不存在 {args.cover}")
+            sys.exit(1)
+        CoverExtractor.extract(file_path)
+        sys.exit(0)
+
+    # 音量增益
+    if args.gain is not None:
+        if not args.files:
+            print("错误: 请指定要调整音量的音频文件")
+            sys.exit(1)
+        files = [Path(f) for f in args.files]
+        if len(files) == 1:
+            VolumeGain.apply(files[0], args.gain)
+        else:
+            VolumeGain.batch_apply(files, args.gain)
+        sys.exit(0)
+
+    # 铃声生成
+    if args.ringtone:
+        if not args.ringtone:
+            print("错误: 用法 --ringtone FILE [START [DURATION]]")
+            sys.exit(1)
+        file_path = Path(args.ringtone[0])
+        if not file_path.exists():
+            print(f"错误: 文件不存在 {args.ringtone[0]}")
+            sys.exit(1)
+        start = 0.0
+        duration = None
+        try:
+            if len(args.ringtone) >= 2:
+                start = float(args.ringtone[1])
+            if len(args.ringtone) >= 3:
+                duration = float(args.ringtone[2])
+        except ValueError:
+            print("错误: START/DURATION 必须为数字（秒）")
+            sys.exit(1)
+        RingtoneMaker.make(file_path, start=start, duration=duration,
+                           fade=args.fade_sec)
+        sys.exit(0)
+
+    # 声道转换
+    if args.channels is not None:
+        if not args.files:
+            print("错误: 请指定要转换声道的音频文件")
+            sys.exit(1)
+        if args.channels not in (1, 2):
+            print(f"错误: 声道数仅支持 1(单声道) 或 2(立体声)，当前: {args.channels}")
+            sys.exit(1)
+        files = [Path(f) for f in args.files]
+        if len(files) == 1:
+            ChannelConverter.convert(files[0], args.channels)
+        else:
+            ChannelConverter.batch_convert(files, args.channels)
+        sys.exit(0)
+
+    # 采样率转换
+    if args.resample is not None:
+        if not args.files:
+            print("错误: 请指定要转换采样率的音频文件")
+            sys.exit(1)
+        if args.resample < 1000 or args.resample > 384000:
+            print(f"错误: 采样率超出范围 (1000 ~ 384000 Hz): {args.resample}")
+            sys.exit(1)
+        files = [Path(f) for f in args.files]
+        if len(files) == 1:
+            SampleRateConverter.convert(files[0], args.resample)
+        else:
+            SampleRateConverter.batch_convert(files, args.resample)
+        sys.exit(0)
+
+    # 音视频合成
+    if args.mux:
+        video_path = Path(args.mux[0])
+        audio_path = Path(args.mux[1])
+        if not video_path.exists():
+            print(f"错误: 视频文件不存在 {args.mux[0]}")
+            sys.exit(1)
+        if not audio_path.exists():
+            print(f"错误: 音频文件不存在 {args.mux[1]}")
+            sys.exit(1)
+        AVMuxer.mux(video_path, audio_path, replace=True)
         sys.exit(0)
 
     if not args.files:
