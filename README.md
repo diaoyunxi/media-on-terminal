@@ -66,6 +66,13 @@
 - 🔈 **声道转换** - 单声道/立体声互转，支持批量
 - 🎚️ **采样率转换** - 转换音频采样率（Hz），支持批量
 - 🎞️ **音视频合成** - 将音频合并到视频（替换原音轨）
+- 🏥 **媒体健康检查** - 检测文件是否损坏、能否正常解码，批量扫描给出报告
+- 🤫 **静音检测与裁剪** - 自动检测音频/视频中的静音段，可一键裁剪（阈值/最短时长可调）
+- ✂️ **媒体分段** - 按段数或每段时长自动切分音频/视频文件
+- 📑 **元数据批量导出** - 将多个文件的元数据批量导出为 CSV 表格（Excel 友好）
+- 🔎 **音频指纹识别** - 基于 chromaprint 生成指纹，两两比对相似度
+- 📈 **音量渐变** - 从起始 dB 线性渐变到结束 dB，实现渐强/渐弱效果
+- 🅰 **ASCII 艺术导出** - 将视频画面转为 ASCII 文本动画（宽度/帧率可调）
 
 ## 🚀 快速安装
 
@@ -423,6 +430,73 @@ mp --mux video.mp4 bgm.mp3                      # 用 bgm 替换视频原音轨
 
 视频流复制（无损），音频重编码为 AAC 192k，输出 `*_muxed` 文件。
 
+### 媒体健康检查
+
+```bash
+mp --health-check song.mp3                      # 检查单个文件
+mp --health-check *.mp3                         # 批量检查（返回异常文件数）
+mp --health-check ~/Music/*.flac                # 扫描整个音乐库
+```
+
+通过 ffprobe 探测容器/流，再用 ffmpeg `-err_detect explode` 完整解码检测错误，输出健康/异常报告。
+
+### 静音检测与裁剪
+
+```bash
+mp --silence-detect song.mp3                    # 检测静音段（默认 -30dB / 0.5秒）
+mp --silence-detect song.mp3 --silence-threshold -40 --silence-duration 1
+mp --silence-cut song.mp3                       # 自动裁剪静音段
+```
+
+检测基于 `silencedetect` 滤镜，裁剪基于 `silenceremove` 滤镜。输出 `*_silencecut` 文件，按输出后缀自动选择编码器。
+
+### 媒体分段
+
+```bash
+mp --split song.mp3 4                           # 按段数切分为 4 段
+mp --split song.mp3 01:30                       # 按每段 90 秒切分
+mp --split video.mp4 60                         # 按每段 60 秒切分视频
+```
+
+SPEC 为纯整数（1-100）时按段数切分；否则按时长切分（支持 `SS`、`MM:SS`、`HH:MM:SS`）。输出到 `<文件名>_parts/` 目录，流复制无损。
+
+### 元数据批量导出（CSV）
+
+```bash
+mp --export-csv info.csv *.mp3                  # 导出当前目录所有 MP3
+mp --export-csv library.csv ~/Music/**/*.flac   # 导出整个音乐库
+```
+
+字段：文件名、格式、大小、时长、比特率、编码、采样率、声道、宽高、帧率、标题、艺术家、专辑。使用 UTF-8 BOM 编码，Excel 可直接打开中文。
+
+### 音频指纹识别
+
+```bash
+mp --fingerprint a.mp3                          # 单个文件仅生成指纹
+mp --fingerprint a.mp3 b.mp3                    # 多个文件两两比对相似度
+```
+
+基于 ffmpeg chromaprint 生成原始指纹，按字节异或计算汉明距离，输出相似度百分比。需 ffmpeg 启用 chromaprint 支持。
+
+### 音量渐变
+
+```bash
+mp --volume-ramp -6 6 song.mp3                  # 从 -6dB 渐强到 +6dB
+mp --volume-ramp 0 -20 song.mp3                 # 从 0dB 渐弱到 -20dB
+```
+
+dB 范围 -60 ~ +30，使用 `volume` 滤镜按帧求值线性插值。输出 `*_ramp*` 文件，按输出后缀自动选择编码器。
+
+### 视频 ASCII 艺术导出
+
+```bash
+mp --ascii-art video.mp4                        # 默认 80 字符宽，10fps
+mp --ascii-art video.mp4 --ascii-width 100 --ascii-fps 15
+mp --ascii-art video.mp4 --gif-duration 5       # 仅导出前 5 秒
+```
+
+将视频画面降采样为灰度后映射为 10 级 ASCII 字符（` .:-=+*#%@`），输出 `.txt` 文本动画文件，每帧带分隔标记。
+
 ## 🎮 播放控制
 
 ### 音频播放控制
@@ -522,6 +596,18 @@ mp --mux video.mp4 bgm.mp3                      # 用 bgm 替换视频原音轨
     --resample RATE FILE... 转换采样率(Hz)，支持批量
     --mux VIDEO AUDIO   将音频合并到视频（替换原音轨）
     --fade-sec N        铃声淡入淡出时长（秒，默认2.0）
+    --health-check FILE...  媒体健康检查（检测是否损坏、可解码）
+    --silence-detect FILE   检测音频/视频中的静音段
+    --silence-cut FILE  自动裁剪音频中的静音段
+    --silence-threshold DB  静音检测阈值（dB，默认 -30）
+    --silence-duration SEC  静音最短时长（秒，默认 0.5）
+    --split FILE SPEC   媒体分段（SPEC 为段数或时长如 60 / 01:30）
+    --export-csv OUT FILE...  批量导出元数据到 CSV
+    --fingerprint FILE... 生成音频指纹并比对相似度
+    --volume-ramp START_DB END_DB FILE  音量渐变（渐强/渐弱）
+    --ascii-art VIDEO   将视频导出为 ASCII 文本动画
+    --ascii-width N     ASCII 艺术宽度（字符数，默认 80）
+    --ascii-fps N       ASCII 艺术帧率（默认 10）
     --fmt FMT           指定输出格式（提取/归一化/合并/混响）
     --at N              截图时间点（秒）
     --count N           批量截图数量
@@ -611,6 +697,17 @@ MIT License
 欢迎提交 Issue 和 Pull Request！
 
 ## 📝 更新日志
+
+### v2.9.0
+- 🏥 新增媒体健康检查 - ffprobe 探测 + ffmpeg `-err_detect explode` 完整解码检测，批量扫描给出健康/异常报告
+- 🤫 新增静音检测与裁剪 - 基于 `silencedetect`/`silenceremove` 滤镜，阈值与最短时长可调，按输出后缀自动选择编码器
+- ✂️ 新增媒体分段 - 按段数（1-100）或每段时长（`SS`/`MM:SS`/`HH:MM:SS`）切分，流复制无损，输出到 `<文件名>_parts/`
+- 📑 新增元数据批量导出 - 将多个文件的元数据批量导出为 CSV（UTF-8 BOM，Excel 友好）
+- 🔎 新增音频指纹识别 - 基于 chromaprint 生成原始指纹，按字节异或计算汉明距离，两两比对相似度
+- 📈 新增音量渐变 - 从起始 dB 线性渐变到结束 dB（渐强/渐弱），`volume` 滤镜按帧求值
+- 🅰 新增视频 ASCII 艺术导出 - 降采样灰度后映射为 10 级 ASCII 字符，输出 `.txt` 文本动画（宽度/帧率/时长可调）
+- ✨ 新增命令行选项 `--health-check`, `--silence-detect`, `--silence-cut`, `--silence-threshold`, `--silence-duration`, `--split`, `--export-csv`, `--fingerprint`, `--volume-ramp`, `--ascii-art`, `--ascii-width`, `--ascii-fps`
+- 🐛 修复多个已知问题
 
 ### v2.8.0
 - 🌊 新增波形图生成 - 通过 ffmpeg `showwavespic` 生成音频波形图 PNG（分声道展示）
