@@ -26,7 +26,7 @@ import urllib.error
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 
-__version__ = "2.9.0"
+__version__ = "2.10.0"
 
 # 配置文件路径
 CONFIG_DIR = Path.home() / '.config' / 'mp'
@@ -5647,6 +5647,463 @@ class AsciiArtExporter:
             return False
 
 
+class AudioMixMixer:
+    """音频混音 - 将多个音轨混合为一个（音量自动平衡）"""
+
+    @staticmethod
+    def mix(input_files: List[Path], output_path: Path,
+            output_format: Optional[str] = None) -> bool:
+        """混合多个音频文件，使用 amix 滤镜自动归一化音量"""
+        if len(input_files) < 2:
+            print("错误: 混音至少需要 2 个文件")
+            return False
+        for f in input_files:
+            if not f.exists():
+                print(f"错误: 文件不存在 {f}")
+                return False
+        if not shutil.which('ffmpeg'):
+            print("错误: 未安装 ffmpeg")
+            return False
+
+        # 输出后缀决定编码器
+        if output_format:
+            suffix = '.' + output_format.lstrip('.').lower()
+        else:
+            suffix = output_path.suffix.lower()
+        codec_args = AudioConverter.SUPPORTED_FORMATS.get(suffix)
+        if codec_args is None:
+            print(f"错误: 不支持的输出格式 {suffix}")
+            print(f"  支持: {', '.join(AudioConverter.SUPPORTED_FORMATS.keys())}")
+            return False
+
+        n = len(input_files)
+        # amix: inputs=N, duration=longest, dropout_transition=0
+        amix_filter = f"[0:a][1:a]amix=inputs={n}:duration=longest:dropout_transition=0[aout]"
+        cmd = ['ffmpeg', '-y', '-loglevel', 'warning']
+        for f in input_files:
+            cmd += ['-i', str(f)]
+        cmd += ['-filter_complex', amix_filter,
+                '-map', '[aout]']
+        cmd += codec_args
+        cmd += [str(output_path)]
+
+        print(f"混音: {n} 个文件 → {output_path.name}")
+        for i, f in enumerate(input_files, 1):
+            print(f"  [{i}/{n}] {f.name}")
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and output_path.exists():
+                print(f"✓ 混音完成: {output_path.name}")
+                print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
+                return True
+            print(f"✗ 混音失败: {result.stderr.strip()}")
+            return False
+        except Exception as e:
+            print(f"✗ 错误: {e}")
+            return False
+
+
+class VideoConcat:
+    """视频拼接 - 将多个视频文件顺序拼接为一个（concat demuxer，要求编码参数一致）"""
+
+    @staticmethod
+    def concat(input_files: List[Path], output_path: Path) -> bool:
+        """使用 concat demuxer 拼接，要求各文件编码/分辨率/采样率一致"""
+        if len(input_files) < 2:
+            print("错误: 拼接至少需要 2 个文件")
+            return False
+        for f in input_files:
+            if not f.exists():
+                print(f"错误: 文件不存在 {f}")
+                return False
+        if not shutil.which('ffmpeg'):
+            print("错误: 未安装 ffmpeg")
+            return False
+
+        # 写入 concat 列表文件（使用绝对路径，转义单引号）
+        list_fd, list_path = tempfile.mkstemp(suffix='.txt', prefix='mp_concat_')
+        try:
+            with os.fdopen(list_fd, 'w', encoding='utf-8') as f:
+                for fp in input_files:
+                    abs_path = str(fp.resolve())
+                    # 单引号转义：' -> '\''
+                    escaped = abs_path.replace("'", "'\\''")
+                    f.write(f"file '{escaped}'\n")
+
+            cmd = ['ffmpeg', '-y', '-loglevel', 'warning',
+                   '-f', 'concat', '-safe', '0',
+                   '-i', list_path,
+                   '-c', 'copy',
+                   str(output_path)]
+
+            print(f"拼接: {len(input_files)} 个文件 → {output_path.name}")
+            print(f"  （要求各文件编码/分辨率/时基一致，否则需先统一格式）")
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and output_path.exists():
+                print(f"✓ 拼接完成: {output_path.name}")
+                print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
+                return True
+            # 流复制失败时提示
+            print(f"✗ 流复制拼接失败: {result.stderr.strip()}")
+            print(f"  提示: 各文件编码不一致时，请先用 --convert 或 ffmpeg 统一格式后再拼接")
+            return False
+        except Exception as e:
+            print(f"✗ 错误: {e}")
+            return False
+        finally:
+            try:
+                os.unlink(list_path)
+            except OSError:
+                pass
+
+
+class VideoScaler:
+    """视频缩放 - 改变视频分辨率"""
+
+    @staticmethod
+    def scale(video_path: Path, width: int, height: int,
+              output_path: Optional[Path] = None,
+              keep_aspect: bool = True) -> bool:
+        """缩放视频到指定分辨率，默认保持宽高比并填充黑边"""
+        if not video_path.exists():
+            print(f"错误: 文件不存在 {video_path}")
+            return False
+        if not shutil.which('ffmpeg'):
+            print("错误: 未安装 ffmpeg")
+            return False
+        if width < 16 or width > 7680 or height < 16 or height > 4320:
+            print(f"错误: 分辨率超出范围 (16x16 ~ 7680x4320): {width}x{height}")
+            return False
+
+        if output_path is None:
+            output_path = video_path.with_name(
+                f"{video_path.stem}_scaled_{width}x{height}{video_path.suffix}")
+
+        if keep_aspect:
+            # 保持宽高比，不足处填充黑边
+            vf = (f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+                  f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2")
+        else:
+            vf = f"scale={width}:{height}"
+
+        cmd = ['ffmpeg', '-y', '-loglevel', 'warning',
+               '-i', str(video_path),
+               '-vf', vf,
+               '-c:a', 'copy',
+               str(output_path)]
+
+        print(f"缩放: {video_path.name} → {width}x{height}"
+              f"{' (保持宽高比)' if keep_aspect else ' (强制拉伸)'}")
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and output_path.exists():
+                print(f"✓ 缩放完成: {output_path.name}")
+                print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
+                return True
+            print(f"✗ 缩放失败: {result.stderr.strip()}")
+            return False
+        except Exception as e:
+            print(f"✗ 错误: {e}")
+            return False
+
+
+class VideoRotator:
+    """视频旋转 - 90/180/270 度旋转"""
+
+    VALID_DEGREES = {90, 180, 270}
+
+    @staticmethod
+    def rotate(video_path: Path, degrees: int,
+               output_path: Optional[Path] = None) -> bool:
+        """旋转视频，90/270 会交换宽高"""
+        if not video_path.exists():
+            print(f"错误: 文件不存在 {video_path}")
+            return False
+        if not shutil.which('ffmpeg'):
+            print("错误: 未安装 ffmpeg")
+            return False
+        if degrees not in VideoRotator.VALID_DEGREES:
+            print(f"错误: 旋转角度必须是 {sorted(VideoRotator.VALID_DEGREES)} 之一")
+            return False
+
+        if output_path is None:
+            output_path = video_path.with_name(
+                f"{video_path.stem}_rot{degrees}{video_path.suffix}")
+
+        # transpose: 1=顺时针90, 2=逆时针90(=顺时针270), 180需两次翻转
+        if degrees == 90:
+            vf = "transpose=1"
+        elif degrees == 270:
+            vf = "transpose=2"
+        else:  # 180
+            vf = "transpose=2,transpose=2"
+
+        cmd = ['ffmpeg', '-y', '-loglevel', 'warning',
+               '-i', str(video_path),
+               '-vf', vf,
+               '-c:a', 'copy',
+               str(output_path)]
+
+        print(f"旋转: {video_path.name} → 顺时针 {degrees}°")
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and output_path.exists():
+                print(f"✓ 旋转完成: {output_path.name}")
+                print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
+                return True
+            print(f"✗ 旋转失败: {result.stderr.strip()}")
+            return False
+        except Exception as e:
+            print(f"✗ 错误: {e}")
+            return False
+
+
+class VideoCropper:
+    """视频画面裁剪 - 裁取指定矩形区域"""
+
+    @staticmethod
+    def crop(video_path: Path, width: int, height: int,
+             x: int, y: int,
+             output_path: Optional[Path] = None) -> bool:
+        """裁剪视频画面，从 (x,y) 起取 width x height 区域"""
+        if not video_path.exists():
+            print(f"错误: 文件不存在 {video_path}")
+            return False
+        if not shutil.which('ffmpeg'):
+            print("错误: 未安装 ffmpeg")
+            return False
+        if width < 2 or height < 2:
+            print(f"错误: 裁剪尺寸过小 (需 ≥2): {width}x{height}")
+            return False
+        if x < 0 or y < 0:
+            print(f"错误: 起点坐标不能为负: ({x},{y})")
+            return False
+
+        info = MediaInfo.get_info(video_path)
+        src_w = info.get('width', 0) if isinstance(info, dict) else 0
+        src_h = info.get('height', 0) if isinstance(info, dict) else 0
+        if src_w and src_h:
+            if x + width > src_w or y + height > src_h:
+                print(f"错误: 裁剪区域超出画面 ({src_w}x{src_h})")
+                print(f"  裁剪区: ({x},{y}) + {width}x{height} → 右下角 ({x+width},{y+height})")
+                return False
+
+        if output_path is None:
+            output_path = video_path.with_name(
+                f"{video_path.stem}_crop_{width}x{height}{video_path.suffix}")
+
+        vf = f"crop={width}:{height}:{x}:{y}"
+        cmd = ['ffmpeg', '-y', '-loglevel', 'warning',
+               '-i', str(video_path),
+               '-vf', vf,
+               '-c:a', 'copy',
+               str(output_path)]
+
+        print(f"裁剪: {video_path.name} 画面 ({x},{y}) + {width}x{height}")
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and output_path.exists():
+                print(f"✓ 裁剪完成: {output_path.name}")
+                print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
+                return True
+            print(f"✗ 裁剪失败: {result.stderr.strip()}")
+            return False
+        except Exception as e:
+            print(f"✗ 错误: {e}")
+            return False
+
+
+class FpsConverter:
+    """视频帧率转换 - 改变视频每秒帧数"""
+
+    @staticmethod
+    def convert(video_path: Path, fps: float,
+                output_path: Optional[Path] = None) -> bool:
+        """通过 fps 滤镜改变视频帧率（插值/丢帧）"""
+        if not video_path.exists():
+            print(f"错误: 文件不存在 {video_path}")
+            return False
+        if not shutil.which('ffmpeg'):
+            print("错误: 未安装 ffmpeg")
+            return False
+        if fps < 1 or fps > 240:
+            print(f"错误: 帧率超出范围 (1 ~ 240): {fps}")
+            return False
+
+        if output_path is None:
+            # 帧率取整用于文件名
+            fps_tag = int(fps) if fps == int(fps) else f"{fps:.2f}".rstrip('0').rstrip('.')
+            output_path = video_path.with_name(
+                f"{video_path.stem}_{fps_tag}fps{video_path.suffix}")
+
+        vf = f"fps={fps}"
+        cmd = ['ffmpeg', '-y', '-loglevel', 'warning',
+               '-i', str(video_path),
+               '-vf', vf,
+               '-c:a', 'copy',
+               str(output_path)]
+
+        print(f"帧率转换: {video_path.name} → {fps} fps")
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and output_path.exists():
+                print(f"✓ 转换完成: {output_path.name}")
+                print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
+                return True
+            print(f"✗ 转换失败: {result.stderr.strip()}")
+            return False
+        except Exception as e:
+            print(f"✗ 错误: {e}")
+            return False
+
+
+class MetadataStripper:
+    """元数据剥离 - 移除媒体文件中的所有元数据（保留音视频流）"""
+
+    @staticmethod
+    def strip(file_path: Path,
+              output_path: Optional[Path] = None) -> bool:
+        """移除所有元数据，流复制保留原编码"""
+        if not file_path.exists():
+            print(f"错误: 文件不存在 {file_path}")
+            return False
+        if not shutil.which('ffmpeg'):
+            print("错误: 未安装 ffmpeg")
+            return False
+
+        if output_path is None:
+            output_path = file_path.with_name(
+                f"{file_path.stem}_clean{file_path.suffix}")
+
+        cmd = ['ffmpeg', '-y', '-loglevel', 'warning',
+               '-i', str(file_path),
+               '-map_metadata', '-1',
+               '-map_chapters', '-1',
+               '-c', 'copy',
+               str(output_path)]
+
+        print(f"剥离元数据: {file_path.name}")
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and output_path.exists():
+                src_size = file_path.stat().st_size
+                dst_size = output_path.stat().st_size
+                saved = src_size - dst_size
+                print(f"✓ 完成: {output_path.name}")
+                print(f"  原始大小: {MediaInfo.format_size(src_size)}")
+                print(f"  输出大小: {MediaInfo.format_size(dst_size)}"
+                      + (f" (减少 {MediaInfo.format_size(saved)})" if saved > 0 else ""))
+                return True
+            print(f"✗ 失败: {result.stderr.strip()}")
+            return False
+        except Exception as e:
+            print(f"✗ 错误: {e}")
+            return False
+
+    @staticmethod
+    def batch_strip(files: List[Path]) -> int:
+        """批量剥离元数据，返回成功数"""
+        total = len(files)
+        success = 0
+        print(f"===== 批量剥离元数据: {total} 个文件 =====")
+        for i, f in enumerate(files, 1):
+            print(f"\n[{i}/{total}] {f.name}")
+            if MetadataStripper.strip(f):
+                success += 1
+        print(f"\n===== 完成: {success}/{total} 成功 =====")
+        return success
+
+
+class SegmentRepeater:
+    """片段重复 - 将指定时间段重复 N 次后接原文件结尾"""
+
+    @staticmethod
+    def repeat(file_path: Path, start: float, end: float, times: int,
+               output_path: Optional[Path] = None) -> bool:
+        """重复 [start,end] 片段 times 次，再接原文件 [end,末尾]
+        使用 trim+concat 滤镜实现"""
+        if not file_path.exists():
+            print(f"错误: 文件不存在 {file_path}")
+            return False
+        if not shutil.which('ffmpeg'):
+            print("错误: 未安装 ffmpeg")
+            return False
+        if start < 0:
+            print(f"错误: 起始时间不能为负: {start}")
+            return False
+        if end <= start:
+            print(f"错误: 结束时间需大于起始时间 (start={start}, end={end})")
+            return False
+        if times < 1 or times > 100:
+            print(f"错误: 重复次数超出范围 (1 ~ 100): {times}")
+            return False
+
+        info = MediaInfo.get_info(file_path)
+        duration = info.get('duration', 0) if isinstance(info, dict) else 0
+        if duration <= 0:
+            print("✗ 无法读取文件时长")
+            return False
+        if end > duration:
+            print(f"✗ 结束时间 {end}s 超出文件时长 {duration:.2f}s")
+            return False
+
+        if output_path is None:
+            output_path = file_path.with_name(
+                f"{file_path.stem}_repeat_{int(start)}s-{int(end)}s x{times}{file_path.suffix}")
+
+        suffix = output_path.suffix.lower()
+        codec_args = AudioConverter.SUPPORTED_FORMATS.get(suffix)
+        # 视频文件：使用流复制；音频文件：用对应编码器
+        video_exts = {'.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v'}
+        is_video = suffix in video_exts
+
+        # 构造 filter_complex：片段A=[start,end]重复times次，片段B=[end,末尾]
+        # 用 asplit 将片段复制 N 份，再用 concat 拼接
+        filters = []
+        # 提取重复片段并复制 times 份
+        split_labels = ''.join(f"[s{i}]" for i in range(times))
+        filters.append(
+            f"[0:a]atrim={start}:{end},asetpts=PTS-STARTPTS,"
+            f"asplit={times}{split_labels}"
+        )
+        # 尾段 [end, 末尾]
+        filters.append(f"[0:a]atrim=start={end},asetpts=PTS-STARTPTS[atail]")
+        # concat n = times + 1（times 个重复片段 + 1 个尾段）
+        concat_n = times + 1
+        concat_inputs = ''.join(f"[s{i}]" for i in range(times)) + "[atail]"
+        filters.append(f"{concat_inputs}concat=n={concat_n}:v=0:a=1[aout]")
+
+        filter_complex = ";".join(filters)
+        cmd = ['ffmpeg', '-y', '-loglevel', 'warning',
+               '-i', str(file_path),
+               '-filter_complex', filter_complex,
+               '-map', '[aout]']
+        if is_video:
+            # 视频用默认 aac
+            cmd += ['-c:a', 'aac', '-b:a', '192k']
+        elif codec_args:
+            cmd += codec_args
+        else:
+            cmd += ['-c:a', 'aac', '-b:a', '192k']
+        cmd += [str(output_path)]
+
+        seg_duration = end - start
+        total_audio_duration = seg_duration * times + (duration - end)
+        print(f"片段重复: {file_path.name} [{start:.2f}s→{end:.2f}s] x {times} + 尾段")
+        print(f"  输出预计时长: {total_audio_duration:.2f}s (原 {duration:.2f}s)")
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and output_path.exists():
+                print(f"✓ 完成: {output_path.name}")
+                print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
+                return True
+            print(f"✗ 失败: {result.stderr.strip()}")
+            return False
+        except Exception as e:
+            print(f"✗ 错误: {e}")
+            return False
+
+
 def show_help():
     """显示帮助信息"""
     help_text = """
@@ -5814,6 +6271,16 @@ def show_help():
     mp --volume-ramp -6 6 song.mp3      # 从 -6dB 渐变到 +6dB
     mp --ascii-art video.mp4            # 视频转 ASCII 文本动画
     mp --ascii-art video.mp4 --ascii-width 100 --ascii-fps 15
+    mp --mix mix.mp3 vocal.mp3 bgm.mp3  # 混音（vocal + 背景乐）
+    mp --vconcat out.mp4 a.mp4 b.mp4 c.mp4  # 拼接多个视频
+    mp --scale video.mp4 1280 720       # 缩放视频到 720p
+    mp --scale video.mp4 1920 1080      # 缩放视频到 1080p
+    mp --rotate video.mp4 90            # 顺时针旋转 90 度
+    mp --crop video.mp4 640 480 100 50  # 从 (100,50) 起裁取 640x480
+    mp --fps video.mp4 60               # 转换为 60 fps
+    mp --strip-metadata song.mp3        # 剥离所有元数据
+    mp --strip-metadata *.mp3           # 批量剥离元数据
+    mp --repeat song.mp3 30 60 3        # 重复 30-60 秒片段 3 次后接尾段
 
 播放控制:
     空格键              暂停/继续
@@ -6153,6 +6620,30 @@ def main():
                         help='ASCII 艺术宽度（字符数，默认 80）')
     parser.add_argument('--ascii-fps', type=int, default=10, dest='ascii_fps',
                         help='ASCII 艺术帧率（默认 10）')
+    # ===== v2.10.0 新增参数 =====
+    parser.add_argument('--mix', nargs='+', metavar=('OUTPUT', 'FILE'),
+                        dest='mix',
+                        help='音频混音: --mix OUTPUT FILE1 FILE2 [FILE3...]')
+    parser.add_argument('--vconcat', nargs='+', metavar=('OUTPUT', 'FILE'),
+                        dest='vconcat',
+                        help='视频拼接: --vconcat OUTPUT FILE1 FILE2 [FILE3...]')
+    parser.add_argument('--scale', nargs=2, metavar=('VIDEO', 'WxH'),
+                        dest='scale',
+                        help='视频缩放: --scale VIDEO WIDTHxHEIGHT (如 1280x720)')
+    parser.add_argument('--rotate', nargs=2, metavar=('VIDEO', 'DEGREE'),
+                        dest='rotate',
+                        help='视频旋转: --rotate VIDEO 90|180|270 (顺时针)')
+    parser.add_argument('--crop', nargs=2, metavar=('VIDEO', 'W:H:X:Y'),
+                        dest='crop',
+                        help='视频画面裁剪: --crop VIDEO W:H:X:Y (如 640:480:100:50)')
+    parser.add_argument('--fps', nargs=2, metavar=('VIDEO', 'FPS'),
+                        dest='fps',
+                        help='视频帧率转换: --fps VIDEO FPS (1~240)')
+    parser.add_argument('--strip-metadata', action='store_true', dest='strip_metadata',
+                        help='剥离元数据（操作 args.files，支持批量）')
+    parser.add_argument('--repeat', nargs=4, metavar=('FILE', 'START', 'END', 'N'),
+                        dest='repeat',
+                        help='片段重复: --repeat FILE START END N (重复 N 次后接尾段)')
     parser.add_argument('files', nargs='*', help='媒体文件路径')
     
     args = parser.parse_args()
@@ -6800,6 +7291,129 @@ def main():
             fps=args.ascii_fps,
             max_duration=duration
         )
+        sys.exit(0)
+
+    # ===== v2.10.0 新增命令处理 =====
+    # 音频混音
+    if args.mix:
+        if len(args.mix) < 3:
+            print("错误: 用法 --mix OUTPUT FILE1 FILE2 [FILE3...]")
+            print("      至少需要 1 个输出 + 2 个输入文件")
+            sys.exit(1)
+        output_path = Path(args.mix[0])
+        input_files = [Path(f) for f in args.mix[1:]]
+        AudioMixMixer.mix(input_files, output_path, output_format=args.fmt)
+        sys.exit(0)
+
+    # 视频拼接
+    if args.vconcat:
+        if len(args.vconcat) < 3:
+            print("错误: 用法 --vconcat OUTPUT FILE1 FILE2 [FILE3...]")
+            print("      至少需要 1 个输出 + 2 个输入文件")
+            sys.exit(1)
+        output_path = Path(args.vconcat[0])
+        input_files = [Path(f) for f in args.vconcat[1:]]
+        VideoConcat.concat(input_files, output_path)
+        sys.exit(0)
+
+    # 视频缩放
+    if args.scale:
+        video_arg, res_arg = args.scale
+        video_path = Path(video_arg)
+        if not video_path.exists():
+            print(f"错误: 视频文件不存在 {video_arg}")
+            sys.exit(1)
+        res = res_arg.replace('x', 'X').replace(':', 'X')
+        parts = res.split('X')
+        if len(parts) != 2:
+            print(f"错误: 分辨率格式应为 WxH 或 W:H (如 1280x720): {res_arg}")
+            sys.exit(1)
+        try:
+            width = int(parts[0])
+            height = int(parts[1])
+        except ValueError:
+            print(f"错误: 宽高必须为整数: {res_arg}")
+            sys.exit(1)
+        VideoScaler.scale(video_path, width, height)
+        sys.exit(0)
+
+    # 视频旋转
+    if args.rotate:
+        video_arg, deg_arg = args.rotate
+        video_path = Path(video_arg)
+        if not video_path.exists():
+            print(f"错误: 视频文件不存在 {video_arg}")
+            sys.exit(1)
+        try:
+            degrees = int(deg_arg)
+        except ValueError:
+            print(f"错误: 旋转角度必须为整数: {deg_arg}")
+            sys.exit(1)
+        VideoRotator.rotate(video_path, degrees)
+        sys.exit(0)
+
+    # 视频画面裁剪
+    if args.crop:
+        video_arg, geom_arg = args.crop
+        video_path = Path(video_arg)
+        if not video_path.exists():
+            print(f"错误: 视频文件不存在 {video_arg}")
+            sys.exit(1)
+        parts = geom_arg.split(':')
+        if len(parts) != 4:
+            print(f"错误: 裁剪参数格式应为 W:H:X:Y (如 640:480:100:50): {geom_arg}")
+            sys.exit(1)
+        try:
+            w, h, x, y = [int(p) for p in parts]
+        except ValueError:
+            print(f"错误: 裁剪参数必须为整数: {geom_arg}")
+            sys.exit(1)
+        VideoCropper.crop(video_path, w, h, x, y)
+        sys.exit(0)
+
+    # 视频帧率转换
+    if args.fps:
+        video_arg, fps_arg = args.fps
+        video_path = Path(video_arg)
+        if not video_path.exists():
+            print(f"错误: 视频文件不存在 {video_arg}")
+            sys.exit(1)
+        try:
+            fps = float(fps_arg)
+        except ValueError:
+            print(f"错误: 帧率必须为数字: {fps_arg}")
+            sys.exit(1)
+        FpsConverter.convert(video_path, fps)
+        sys.exit(0)
+
+    # 元数据剥离（批量）
+    if args.strip_metadata:
+        if not args.files:
+            print("错误: 请指定要剥离元数据的文件")
+            sys.exit(1)
+        files = [Path(f) for f in args.files]
+        MetadataStripper.batch_strip(files)
+        sys.exit(0)
+
+    # 片段重复
+    if args.repeat:
+        file_arg, start_arg, end_arg, n_arg = args.repeat
+        file_path = Path(file_arg)
+        if not file_path.exists():
+            print(f"错误: 文件不存在 {file_arg}")
+            sys.exit(1)
+        try:
+            start = float(start_arg)
+            end = float(end_arg)
+        except ValueError:
+            print("错误: START / END 必须为数字（秒）")
+            sys.exit(1)
+        try:
+            times = int(n_arg)
+        except ValueError:
+            print("错误: 重复次数 N 必须为整数")
+            sys.exit(1)
+        SegmentRepeater.repeat(file_path, start, end, times)
         sys.exit(0)
 
     if not args.files:

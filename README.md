@@ -73,6 +73,14 @@
 - 🔎 **音频指纹识别** - 基于 chromaprint 生成指纹，两两比对相似度
 - 📈 **音量渐变** - 从起始 dB 线性渐变到结束 dB，实现渐强/渐弱效果
 - 🅰 **ASCII 艺术导出** - 将视频画面转为 ASCII 文本动画（宽度/帧率可调）
+- 🎚️ **音频混音** - 将多个音轨混合为一个（amix 自动音量平衡）
+- 🎞️ **视频拼接** - 顺序拼接多个视频（concat demuxer，流复制无损）
+- 📐 **视频缩放** - 改变视频分辨率（保持宽高比/强制拉伸可选）
+- 🔄 **视频旋转** - 90/180/270 度顺时针旋转
+- ✂️ **视频画面裁剪** - 裁取指定矩形区域（W:H:X:Y）
+- 🎬 **视频帧率转换** - 1~240 fps 任意帧率转换（插值/丢帧）
+- 🧹 **元数据剥离** - 移除所有元数据与章节（流复制，支持批量）
+- 🔁 **片段重复** - 重复指定时间段 N 次后接原文件结尾
 
 ## 🚀 快速安装
 
@@ -497,6 +505,82 @@ mp --ascii-art video.mp4 --gif-duration 5       # 仅导出前 5 秒
 
 将视频画面降采样为灰度后映射为 10 级 ASCII 字符（` .:-=+*#%@`），输出 `.txt` 文本动画文件，每帧带分隔标记。
 
+### 音频混音
+
+```bash
+mp --mix output.mp3 vocal.mp3 bgm.mp3       # 混音 2 个文件
+mp --mix output.wav a.wav b.wav c.wav       # 混音 3 个文件
+mp --mix output.ogg voice.mp3 music.flac --fmt ogg  # 指定输出编码
+```
+
+使用 ffmpeg `amix` 滤镜自动平衡音量，`duration=longest` 取最长时长，输出后缀决定编码器。
+
+### 视频拼接
+
+```bash
+mp --vconcat out.mp4 clip1.mp4 clip2.mp4 clip3.mp4  # 拼接 3 个视频
+```
+
+使用 `concat` demuxer + `-c copy` 流复制（无损、秒级完成）。**要求各视频编码/分辨率/时基一致**，不一致时请先用 `--scale` / `--convert` 统一格式。
+
+### 视频缩放
+
+```bash
+mp --scale video.mp4 1280x720               # 缩放到 720p（保持宽高比，黑边填充）
+mp --scale video.mp4 1920x1080              # 缩放到 1080p
+mp --scale video.mp4 640:480                # 也支持 W:H 分隔符
+```
+
+默认保持宽高比并填充黑边，分辨率范围 16x16 ~ 7680x4320，输出 `*_scaled_WxH` 文件。
+
+### 视频旋转
+
+```bash
+mp --rotate video.mp4 90                    # 顺时针旋转 90 度
+mp --rotate video.mp4 180                   # 旋转 180 度
+mp --rotate video.mp4 270                   # 顺时针旋转 270 度（=逆时针 90）
+```
+
+仅支持 90/180/270 度，使用 `transpose` 滤镜，90/270 会交换宽高，输出 `*_rot{N}` 文件。
+
+### 视频画面裁剪
+
+```bash
+mp --crop video.mp4 640:480:100:50          # 从 (100,50) 起裁取 640x480
+mp --crop video.mp4 1280:720:0:0            # 从左上角裁取 1280x720
+```
+
+参数格式 `W:H:X:Y`，自动检测裁剪区域是否超出原画面，输出 `*_crop_WxH` 文件。
+
+### 视频帧率转换
+
+```bash
+mp --fps video.mp4 60                       # 转换为 60 fps
+mp --fps video.mp4 30                       # 转换为 30 fps
+mp --fps video.mp4 23.976                   # 电影帧率
+```
+
+通过 `fps` 滤镜插值/丢帧，范围 1~240 fps，输出 `*_{FPS}fps` 文件。
+
+### 元数据剥离
+
+```bash
+mp --strip-metadata song.mp3                # 剥离单个文件元数据
+mp --strip-metadata *.mp3                   # 批量剥离
+mp --strip-metadata video.mp4               # 视频也支持
+```
+
+移除所有元数据与章节信息（`-map_metadata -1 -map_chapters -1`），流复制保留原编码，输出 `*_clean` 文件，并显示节省的空间。
+
+### 片段重复
+
+```bash
+mp --repeat song.mp3 30 60 3                # 重复 30-60 秒片段 3 次，接原文件结尾
+mp --repeat song.mp3 10 20 5                # 重复 10-20 秒片段 5 次
+```
+
+使用 `atrim + asplit + concat` 滤镜，将 `[START, END]` 片段重复 N 次后接原文件 `[END, 末尾]`，重复次数 1~100，输出 `*_repeat_STARTs-ENDs xN` 文件。
+
 ## 🎮 播放控制
 
 ### 音频播放控制
@@ -608,7 +692,15 @@ mp --ascii-art video.mp4 --gif-duration 5       # 仅导出前 5 秒
     --ascii-art VIDEO   将视频导出为 ASCII 文本动画
     --ascii-width N     ASCII 艺术宽度（字符数，默认 80）
     --ascii-fps N       ASCII 艺术帧率（默认 10）
-    --fmt FMT           指定输出格式（提取/归一化/合并/混响）
+    --mix OUTPUT FILE... 音频混音（amix 自动音量平衡）
+    --vconcat OUTPUT FILE... 视频拼接（concat demuxer，要求编码一致）
+    --scale VIDEO WxH   视频缩放（如 1280x720 或 1280:720，保持宽高比）
+    --rotate VIDEO DEG  视频旋转（90/180/270 顺时针）
+    --crop VIDEO W:H:X:Y 视频画面裁剪（如 640:480:100:50）
+    --fps VIDEO FPS     视频帧率转换（1~240 fps）
+    --strip-metadata FILE... 剥离元数据与章节（支持批量）
+    --repeat FILE START END N 片段重复 N 次后接原文件结尾
+    --fmt FMT           指定输出格式（提取/归一化/合并/混响/混音）
     --at N              截图时间点（秒）
     --count N           批量截图数量
     --gif-start N       GIF起始时间（秒）
@@ -697,6 +789,18 @@ MIT License
 欢迎提交 Issue 和 Pull Request！
 
 ## 📝 更新日志
+
+### v2.10.0
+- 🎚️ 新增音频混音 - 基于 ffmpeg `amix` 滤镜将多个音轨混合为一个，`duration=longest` 取最长时长，按输出后缀自动选择编码器
+- 🎞️ 新增视频拼接 - 使用 `concat` demuxer + `-c copy` 流复制无损拼接（要求各视频编码/分辨率/时基一致），临时列表文件自动清理
+- 📐 新增视频缩放 - `scale` + `pad` 滤镜组合，默认保持宽高比填充黑边，支持 `WxH` / `W:H` 两种分隔符，范围 16x16 ~ 7680x4320
+- 🔄 新增视频旋转 - `transpose` 滤镜，仅支持 90/180/270 度顺时针旋转，90/270 自动交换宽高
+- ✂️ 新增视频画面裁剪 - `crop` 滤镜，参数 `W:H:X:Y`，自动检测裁剪区域是否超出原画面
+- 🎬 新增视频帧率转换 - `fps` 滤镜插值/丢帧，范围 1~240 fps，支持小数帧率（如 23.976）
+- 🧹 新增元数据剥离 - `-map_metadata -1 -map_chapters -1` 流复制移除所有元数据与章节，显示节省空间，支持批量
+- 🔁 新增片段重复 - `atrim + asplit + concat` 滤镜组合，将指定时间段重复 N 次（1~100）后接原文件结尾
+- ✨ 新增命令行选项 `--mix`, `--vconcat`, `--scale`, `--rotate`, `--crop`, `--fps`, `--strip-metadata`, `--repeat`
+- 🐛 修复多个已知问题
 
 ### v2.9.0
 - 🏥 新增媒体健康检查 - ffprobe 探测 + ffmpeg `-err_detect explode` 完整解码检测，批量扫描给出健康/异常报告
