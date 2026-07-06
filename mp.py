@@ -28,7 +28,7 @@ import urllib.parse
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 
-__version__ = "2.11.0"
+__version__ = "2.11.1"
 
 # 配置文件路径
 CONFIG_DIR = Path.home() / '.config' / 'mp'
@@ -2489,6 +2489,9 @@ class AudioPlayer:
         self.visualizer_enabled = False
         self.visualizer_width = 60
         self.visualizer = AudioVisualizer(width=self.visualizer_width, height=8)
+
+        # 终端显示状态：跟踪上次输出的行数，用于精确清除避免残留
+        self._last_display_lines = 0
         
         self.load_audio()
     
@@ -2543,20 +2546,10 @@ class AudioPlayer:
         1. 提示输入关键词（默认使用元数据/文件名自动构造）
         2. 显示前5首候选
         3. 用户选择序号应用，并缓存为 .lrc
-        """
-        # 临时恢复终端，便于 input() 交互
-        try:
-            import termios
-            import tty
-            fd = sys.stdin.fileno()
-            old_settings = termios.tcgetattr(fd)
-            try:
-                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-            except Exception:
-                pass
-        except Exception:
-            old_settings = None
 
+        注意：调用方（Linux 下）需在调用前恢复终端到正常模式，调用后重新设 raw，
+        否则 input() 在 raw 模式下回车不提交会卡死。
+        """
         was_paused = self.is_paused
         if not was_paused:
             self.pause()
@@ -2717,6 +2710,17 @@ class AudioPlayer:
             
             if self.process and self.process.poll() is not None:
                 self.is_playing = False
+                # 清除最后的进度显示并换行，避免残留
+                if self._last_display_lines > 0:
+                    n = self._last_display_lines
+                    if n > 1:
+                        sys.stdout.write(f"\033[{n - 1}A")
+                    for i in range(n):
+                        sys.stdout.write("\r\033[2K")
+                        if i < n - 1:
+                            sys.stdout.write("\033[1B")
+                    sys.stdout.flush()
+                    self._last_display_lines = 0
                 print()
                 break
     
@@ -2792,30 +2796,57 @@ class AudioPlayer:
             status_parts.append(crossfade_status)
 
         status = " | ".join(status_parts)
-        
+
         # 获取终端宽度
         try:
             term_width = os.get_terminal_size().columns
         except:
             term_width = 80
-        
-        print(f"\r{status} |{bar}| {current_time}/{total_time}", end='', flush=True)
-        
-        # 如果启用可视化器，显示频谱
+
+        # 收集本次要输出的所有行（截断到终端宽度，避免自动换行导致行数错乱）
+        lines = []
+        line1 = f"{status} |{bar}| {current_time}/{total_time}"
+        lines.append(line1[:term_width])
+
+        # 可视化器频谱
         if self.visualizer_enabled:
-            print()
             viz_lines = self.visualizer.render().split('\n')
             for line in viz_lines[-4:]:  # 只显示最后4行
-                print(f"  {line}", end='', flush=True)
-                print()  # 换行
-        
-        # 如果有歌词，显示当前行
+                lines.append(("  " + line)[:term_width])
+
+        # 歌词当前行：加粗 + 青色，居中显示
         if self.lyrics.enabled and self.lyrics.lyrics:
             current_time_sec = self.current_position / 1000
             current_lyric, _ = self.lyrics.get_lyrics_at_time(current_time_sec)
             if current_lyric:
-                padding = max(0, (term_width - len(current_lyric)) // 2)
-                print(f"\r{' ' * padding}{current_lyric}", end='', flush=True)
+                # 去除 ANSI 长度后再计算 padding
+                visible_len = len(current_lyric)
+                padding = max(0, (term_width - visible_len) // 2)
+                # \033[1;36m = 加粗青色，\033[0m 重置
+                lyric_line = f"{' ' * padding}\033[1;36m{current_lyric}\033[0m"
+                lines.append(lyric_line[:term_width + 9])  # +9 容纳 ANSI 码
+
+        # 清除上次输出的所有行（避免终端残留）
+        n = self._last_display_lines
+        if n > 0:
+            # 光标上移到上次输出的第一行
+            if n > 1:
+                sys.stdout.write(f"\033[{n - 1}A")
+            # 逐行清除并下移
+            for i in range(n):
+                sys.stdout.write("\r\033[2K")  # 回行首 + 清除整行
+                if i < n - 1:
+                    sys.stdout.write("\033[1B")  # 下移一行
+
+        # 输出新内容（行间用 \n 分隔，最后一行不换行，光标停在末尾）
+        for i, line in enumerate(lines):
+            sys.stdout.write(line)
+            if i < len(lines) - 1:
+                sys.stdout.write("\n")
+        sys.stdout.flush()
+
+        # 记录本次行数，供下次清除
+        self._last_display_lines = len(lines)
     
     def format_time(self, ms):
         """格式化时间显示"""
@@ -3075,6 +3106,17 @@ class AudioPlayer:
                             print(f"\n音调已重置")
                             self.play_from_position(self.current_position / 1000)
                         elif key == b'N':
+                            # 清除进度显示，避免和交互界面叠加残留
+                            if self._last_display_lines > 0:
+                                n = self._last_display_lines
+                                if n > 1:
+                                    sys.stdout.write(f"\033[{n - 1}A")
+                                for i in range(n):
+                                    sys.stdout.write("\r\033[2K")
+                                    if i < n - 1:
+                                        sys.stdout.write("\033[1B")
+                                sys.stdout.flush()
+                                self._last_display_lines = 0
                             self._manual_search_lyrics_interactive()
                         elif key == b'\xe0':
                             key2 = msvcrt.getch()
@@ -3197,11 +3239,40 @@ class AudioPlayer:
                                 print(f"\n音调已重置")
                                 self.play_from_position(self.current_position / 1000)
                             elif ch == 'N':
-                                self._manual_search_lyrics_interactive()
+                                # 先清除进度显示，避免和交互界面叠加残留
+                                if self._last_display_lines > 0:
+                                    n = self._last_display_lines
+                                    if n > 1:
+                                        sys.stdout.write(f"\033[{n - 1}A")
+                                    for i in range(n):
+                                        sys.stdout.write("\r\033[2K")
+                                        if i < n - 1:
+                                            sys.stdout.write("\033[1B")
+                                    sys.stdout.flush()
+                                    self._last_display_lines = 0
+                                # 临时恢复终端到正常模式，否则 input() 在 raw 模式下回车不提交会卡死
+                                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+                                try:
+                                    self._manual_search_lyrics_interactive()
+                                finally:
+                                    tty.setraw(fd)
                 finally:
                     termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
         except Exception as e:
             print(f"\n控制监听错误: {e}")
+
+        # 退出前清除进度显示，避免残留
+        if self._last_display_lines > 0:
+            n = self._last_display_lines
+            if n > 1:
+                sys.stdout.write(f"\033[{n - 1}A")
+            for i in range(n):
+                sys.stdout.write("\r\033[2K")
+                if i < n - 1:
+                    sys.stdout.write("\033[1B")
+            sys.stdout.flush()
+            self._last_display_lines = 0
+            print()
 
         self.stop()
         print("\n播放结束")
