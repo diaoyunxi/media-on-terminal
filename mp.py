@@ -8506,9 +8506,17 @@ def main():
             sys.exit(0 if fail_count == 0 else 1)
 
     if not args.files:
-        print("错误: 请指定要播放的媒体文件")
-        print("使用 'mp --help' 查看使用方法")
-        sys.exit(1)
+        playlist = Playlist()
+        playlist.add_directory(Path('.'), recursive=True)
+        if not playlist.files:
+            print("错误: 当前目录下没有找到媒体文件")
+            print("使用 'mp --help' 查看使用方法")
+            sys.exit(1)
+        print(f"播放当前目录下的媒体文件 ({len(playlist.files)} 个)")
+        if args.shuffle:
+            playlist.shuffle()
+        play_playlist(playlist, config, args.loop or config.get('loop_mode', 'none'))
+        sys.exit(0)
     
     # 加载配置
     config = Config()
