@@ -29,7 +29,7 @@ import unicodedata
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 
-__version__ = "2.11.2"
+__version__ = "2.11.3"
 
 
 def _display_width(s: str) -> int:
@@ -1839,34 +1839,60 @@ class LyricsDisplay:
             self.lyrics = []
 
     def _parse_lrc(self, content: str):
-        """解析LRC格式歌词"""
+        """解析LRC格式歌词
+
+        兼容多种时间标签格式：
+        - [mm:ss.xx]  标准（2位毫秒）
+        - [mm:ss.xxx] 3位毫秒
+        - [mm:ss]     无毫秒
+        - [m:ss.xx]   1位分钟
+        - [mm:ss:xx]  冒号分隔毫秒
+        - 一行多时间标签 [00:01.00][00:05.00]歌词
+        - 元数据标签 [ti:xxx] [ar:xxx] [al:xxx] [by:xxx]（跳过）
+        - 偏移标签 [offset:ms]
+        保留空行时间锚点（用于间奏显示）。
+        """
         self.lyrics = []
+        self.offset = 0.0
 
         for line in content.split('\n'):
-            line = line.strip()
+            line = line.rstrip()
             if not line:
                 continue
 
-            # 解析时间标签 [mm:ss.xx] 或 [mm:ss:xx]
-            time_tags = re.findall(r'\[(\d{2}):(\d{2})([.:])(\d{2})\](.*)', line)
-
-            if time_tags:
-                for tag in time_tags:
-                    minutes = int(tag[0])
-                    seconds = int(tag[1])
-                    ms = int(tag[3]) / 100.0 if tag[2] == '.' else int(tag[3])
-                    text = tag[4].strip()
-
-                    if text:
-                        timestamp = minutes * 60 + seconds + ms
-                        self.lyrics.append((timestamp, text))
-
-            # 解析偏移标签 [offset:ms]
+            # 先解析偏移标签
             offset_match = re.search(r'\[offset:([+-]?\d+)\]', line)
             if offset_match:
                 self.offset = int(offset_match.group(1)) / 1000.0
 
-        # 按时间排序
+            # 提取所有时间标签 [mm:ss.xx] / [m:ss] / [mm:ss:xx] 等
+            # 分钟 1-3 位，秒 1-2 位，毫秒部分可选（.xx / .xxx / :xx）
+            time_tags = re.findall(r'\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]', line)
+            if not time_tags:
+                continue
+
+            # 去掉所有时间标签后的文本内容
+            text = re.sub(r'\[\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?\]', '', line).strip()
+
+            # 计算每个时间标签的时间戳
+            for tag in time_tags:
+                minutes = int(tag[0])
+                seconds = int(tag[1])
+                ms_str = tag[2] if tag[2] else ''
+                if ms_str:
+                    # 毫秒归一化到秒：2位按百分位，3位按千分位
+                    if len(ms_str) == 2:
+                        ms = int(ms_str) / 100.0
+                    elif len(ms_str) == 3:
+                        ms = int(ms_str) / 1000.0
+                    else:
+                        ms = int(ms_str) / 100.0
+                else:
+                    ms = 0.0
+                timestamp = minutes * 60 + seconds + ms
+                self.lyrics.append((timestamp, text))
+
+        # 按时间排序，相同时间保留先后顺序
         self.lyrics.sort(key=lambda x: x[0])
 
     def get_lyrics_at_time(self, current_time: float) -> tuple:
@@ -2184,6 +2210,46 @@ class OnlineLyricsFetcher:
         except Exception:
             return ""
 
+    @staticmethod
+    def _score_candidate(keyword: str, candidate: Tuple[str, str, str, str]) -> int:
+        """计算候选与关键词的匹配度评分，分数越高越匹配
+
+        评分规则：
+        - 歌名完全等于关键词（忽略大小写）：+100
+        - 歌名包含关键词或反之：+50
+        - 歌手在关键词中出现：+30
+        - 关键词每个分词在歌名中出现：+10
+        - 歌名为空或明显是伴奏/翻唱标识：-20
+        """
+        name, artist, _, _ = candidate
+        kw = keyword.strip().lower()
+        name_l = (name or '').strip().lower()
+        artist_l = (artist or '').strip().lower()
+
+        # 伴奏/纯音乐/翻唱标识降权
+        bad_markers = ('伴奏', '纯音乐', 'cover', '翻唱', 'inst.', 'instrumental',
+                       'remix', 'dj版', 'live', '现场', 'karaoke', '卡拉ok')
+        if any(m in name_l or m in artist_l for m in bad_markers):
+            return -20
+
+        score = 0
+        if name_l and name_l == kw:
+            score += 100
+        elif name_l and (name_l in kw or kw in name_l):
+            score += 50
+
+        if artist_l and artist_l in kw:
+            score += 30
+
+        # 分词匹配
+        tokens = [t for t in re.split(r'\s+', kw) if len(t) > 1]
+        for t in tokens:
+            if t in name_l:
+                score += 10
+            if t in artist_l:
+                score += 5
+        return score
+
     def search_first(self, keyword: str) -> Tuple[str, Optional[str], Optional[str]]:
         """自动搜索：返回首个带时间轴的歌词
 
@@ -2193,6 +2259,9 @@ class OnlineLyricsFetcher:
         返回:
             (status, lrc_text, source)
             status: "ok" | "no_result" | "no_timeline" | "network_error"
+
+        匹配策略：对候选按匹配度评分排序后，优先尝试最匹配的候选，
+        减少"歌词与歌曲不对应"问题（避免取到翻唱/伴奏版）。
         """
         self._cached_candidates = []
         try:
@@ -2204,8 +2273,15 @@ class OnlineLyricsFetcher:
         if not candidates:
             return "no_result", None, None
 
+        # 按匹配度排序（稳定排序，保留搜索原顺序作 tiebreak）
+        scored = [(c, self._score_candidate(keyword, c)) for c in candidates]
+        # 过滤掉明显是伴奏/翻唱的（负分），除非全部都是负分
+        positive = [c for c, s in scored if s >= 0]
+        ordered = positive if positive else [c for c, _ in scored]
+        ordered.sort(key=lambda c: self._score_candidate(keyword, c), reverse=True)
+
         # 逐个候选尝试，取首个带时间轴的
-        for cand in candidates:
+        for cand in ordered:
             lrc = self._fetch_lyric_by_candidate(cand)
             if self._has_timeline(lrc):
                 return "ok", lrc, cand[2]
