@@ -29,7 +29,7 @@ import unicodedata
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 
-__version__ = "2.11.5"
+__version__ = "2.11.6"
 
 
 def _display_width(s: str) -> int:
@@ -6981,6 +6981,10 @@ def show_help():
     --ascii-art VIDEO   将视频导出为 ASCII 文本动画
     --ascii-width N     ASCII 艺术宽度（字符数，默认 80）
     --ascii-fps N       ASCII 艺术帧率（默认 10）
+    --lyrics TARGET     仅下载歌词不播放。TARGET 为媒体文件路径（用其元数据/文件名搜索）
+                        或关键词字符串
+    --lyrics-interactive 与 --lyrics 配合：交互式选择候选歌词
+    --lyrics-output PATH 与 --lyrics 配合：指定输出 .lrc 路径（默认同名 .lrc 或 关键词.lrc）
 
 支持格式:
     音频: MP3, WAV, OGG, M4A, FLAC, AAC, OPUS 等
@@ -7075,6 +7079,10 @@ def show_help():
     mp --strip-metadata song.mp3        # 剥离所有元数据
     mp --strip-metadata *.mp3           # 批量剥离元数据
     mp --repeat song.mp3 30 60 3        # 重复 30-60 秒片段 3 次后接尾段
+    mp --lyrics song.mp3                # 用 song.mp3 的元数据/文件名搜索歌词并保存为 song.lrc
+    mp --lyrics "陈奕迅 浮夸"           # 用关键词直接搜索歌词，保存为 陈奕迅 浮夸.lrc
+    mp --lyrics song.mp3 --lyrics-interactive  # 交互式从候选列表中选择
+    mp --lyrics song.mp3 --lyrics-output /tmp/浮夸.lrc  # 指定输出路径
 
 播放控制:
     空格键              暂停/继续
@@ -7442,6 +7450,13 @@ def main():
     parser.add_argument('--repeat', nargs=4, metavar=('FILE', 'START', 'END', 'N'),
                         dest='repeat',
                         help='片段重复: --repeat FILE START END N (重复 N 次后接尾段)')
+    # ===== 仅下载歌词 =====
+    parser.add_argument('--lyrics', metavar='TARGET', dest='lyrics',
+                        help='仅下载歌词不播放。TARGET 为媒体文件路径（用其元数据/文件名搜索）或关键词字符串')
+    parser.add_argument('--lyrics-interactive', action='store_true', dest='lyrics_interactive',
+                        help='与 --lyrics 配合：交互式选择候选歌词')
+    parser.add_argument('--lyrics-output', metavar='PATH', dest='lyrics_output',
+                        help='与 --lyrics 配合：指定输出 .lrc 路径（默认同名 .lrc 或 关键词.lrc）')
     parser.add_argument('files', nargs='*', help='媒体文件路径')
     
     args = parser.parse_args()
@@ -8212,6 +8227,99 @@ def main():
             print("错误: 重复次数 N 必须为整数")
             sys.exit(1)
         SegmentRepeater.repeat(file_path, start, end, times)
+        sys.exit(0)
+
+    # ===== 仅下载歌词 =====
+    if args.lyrics:
+        target = args.lyrics
+        fetcher = OnlineLyricsFetcher()
+        src_name_map = {"qq": "QQ音乐", "netease": "网易云", "kugou": "酷狗"}
+
+        # 判断 target 是文件路径还是关键词
+        target_path = Path(target)
+        if target_path.exists() and target_path.is_file():
+            # 媒体文件：用元数据/文件名构造关键词
+            keyword = LyricsDisplay.build_search_keyword(target_path)
+            # 默认输出路径：与媒体文件同名的 .lrc
+            if args.lyrics_output:
+                out_path = Path(args.lyrics_output)
+            else:
+                out_path = target_path.with_suffix('.lrc')
+            print(f"文件: {target_path.name}")
+            print(f"搜索关键词: {keyword}")
+        else:
+            # 关键词字符串
+            keyword = target
+            if args.lyrics_output:
+                out_path = Path(args.lyrics_output)
+            else:
+                # 关键词中的路径非法字符替换为下划线
+                safe_name = re.sub(r'[\\/:*?"<>|]', '_', keyword)
+                out_path = Path(f"{safe_name}.lrc")
+            print(f"搜索关键词: {keyword}")
+
+        # 检查输出路径是否已存在
+        if out_path.exists():
+            print(f"提示: {out_path} 已存在，将覆盖")
+
+        if args.lyrics_interactive:
+            # 交互式：显示候选列表供用户选择
+            print("正在搜索...")
+            candidates = fetcher.search_candidates(keyword, top_n=10)
+            if not candidates:
+                print("未找到候选结果")
+                sys.exit(1)
+            print(f"\n找到 {len(candidates)} 首候选:")
+            for i, (name, artist, source, _) in enumerate(candidates):
+                src_label = src_name_map.get(source, source)
+                print(f"  [{i + 1}] {name} - {artist or '未知'}  ({src_label})")
+            print("  [0] 取消")
+            try:
+                choice = input("\n选择序号: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print("\n已取消")
+                sys.exit(0)
+            if not choice or choice == '0':
+                print("已取消")
+                sys.exit(0)
+            try:
+                idx = int(choice) - 1
+            except ValueError:
+                print("错误: 请输入数字序号")
+                sys.exit(1)
+            if idx < 0 or idx >= len(candidates):
+                print("错误: 序号超出范围")
+                sys.exit(1)
+            cand = candidates[idx]
+            lrc = fetcher._fetch_lyric_by_candidate(cand)
+            if not fetcher._has_timeline(lrc):
+                print(f"该候选无有效歌词（无时间轴或纯音乐占位）")
+                sys.exit(1)
+            source = cand[2]
+            src_label = src_name_map.get(source, source)
+        else:
+            # 自动模式：评分排序 + 选行数最多的
+            print("正在搜索（QQ音乐 + 网易云 + 酷狗 聚合）...")
+            status, lrc, source = fetcher.search_first(keyword)
+            if status != "ok":
+                if status == "no_result":
+                    print("未找到匹配结果")
+                    print("提示: 可尝试简化关键词，或用 --lyrics-interactive 手动选择")
+                elif status == "no_timeline":
+                    print("找到候选但无带时间轴的歌词（可能为纯音乐）")
+                    print("提示: 用 --lyrics-interactive 查看所有候选")
+                elif status == "network_error":
+                    print("网络请求失败，请检查网络连接")
+                sys.exit(1)
+            src_label = src_name_map.get(source, source)
+
+        # 保存
+        out_path.write_text(lrc, encoding='utf-8')
+        # 统计行数
+        line_count = len([l for l in lrc.split('\n') if l.strip()])
+        print(f"\n已保存歌词到: {out_path}")
+        print(f"来源: {src_label}")
+        print(f"行数: {line_count}")
         sys.exit(0)
 
     if not args.files:

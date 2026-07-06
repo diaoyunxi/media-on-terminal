@@ -618,6 +618,28 @@ mp --repeat song.mp3 10 20 5                # 重复 10-20 秒片段 5 次
 
 使用 `atrim + asplit + concat` 滤镜，将 `[START, END]` 片段重复 N 次后接原文件 `[END, 末尾]`，重复次数 1~100，输出 `*_repeat_STARTs-ENDs xN` 文件。
 
+### 仅下载歌词
+
+不播放媒体，仅在线搜索歌词并保存为 `.lrc` 文件。支持从媒体文件元数据/文件名构造关键词，或直接使用关键词字符串搜索。
+
+```bash
+mp --lyrics song.mp3                            # 用 song.mp3 的元数据/文件名搜索，保存为 song.lrc
+mp --lyrics "陈奕迅 浮夸"                       # 用关键词搜索，保存为 陈奕迅 浮夸.lrc
+mp --lyrics song.mp3 --lyrics-interactive       # 交互式从候选列表中选择
+mp --lyrics song.mp3 --lyrics-output /tmp/a.lrc # 指定输出路径
+mp --lyrics "周杰伦 晴天" --lyrics-interactive   # 关键词 + 交互式
+```
+
+**TARGET 两种形式**：
+- **媒体文件路径**：读取元数据（`title` + `artist`）构造关键词，无元数据时回退到清洗后的文件名；默认输出为同名 `.lrc`
+- **关键词字符串**：直接作为搜索关键词；默认输出为 `关键词.lrc`（非法字符替换为下划线）
+
+**两种模式**：
+- **自动模式**（默认）：三源聚合（QQ音乐 + 网易云 + 酷狗）评分排序，选行数最多的有效歌词
+- **交互模式**（`--lyrics-interactive`）：列出最多 10 个候选（歌名 - 歌手 - 来源），输入序号选择
+
+**质量过滤**：仅保存带时间轴的 LRC 歌词，纯音乐占位歌词（"此歌曲为没有填词的纯音乐"等）自动丢弃，有效歌词行数 < 3 的候选视为无效。
+
 ## 🎮 播放控制
 
 ### 音频播放控制
@@ -738,6 +760,9 @@ mp --repeat song.mp3 10 20 5                # 重复 10-20 秒片段 5 次
     --fps VIDEO FPS     视频帧率转换（1~240 fps）
     --strip-metadata FILE... 剥离元数据与章节（支持批量）
     --repeat FILE START END N 片段重复 N 次后接原文件结尾
+    --lyrics TARGET     仅下载歌词不播放（TARGET 为媒体文件路径或关键词字符串）
+    --lyrics-interactive 与 --lyrics 配合：交互式选择候选歌词
+    --lyrics-output PATH 与 --lyrics 配合：指定输出 .lrc 路径
     --fmt FMT           指定输出格式（提取/归一化/合并/混响/混音）
     --at N              截图时间点（秒）
     --count N           批量截图数量
@@ -827,6 +852,13 @@ MIT License
 欢迎提交 Issue 和 Pull Request！
 
 ## 📝 更新日志
+
+### v2.11.6
+- ✨ 新增仅下载歌词功能 `--lyrics TARGET` - 不播放媒体，仅在线搜索歌词并保存为 `.lrc` 文件
+- 🎯 TARGET 支持两种形式：媒体文件路径（用元数据/文件名构造关键词，输出同名 `.lrc`）或关键词字符串（输出 `关键词.lrc`）
+- 🤝 新增 `--lyrics-interactive` 交互模式 - 列出最多 10 个候选（歌名 - 歌手 - 来源），输入序号选择
+- 📁 新增 `--lyrics-output PATH` 指定输出路径 - 不指定时按 TARGET 类型自动命名
+- 🛡️ 复用三源聚合（QQ音乐 + 网易云 + 酷狗）评分排序 + 纯音乐占位过滤 + 有效行数下限，保证歌词质量
 
 ### v2.11.5
 - 🐛 根治终端残留"部分时候生效" - 歌词行未按显示宽度截断，长歌词（如"几百遍重复了几百遍重复的情绪重复了熬过想你的夜"）超过终端宽度触发自动换行，导致 `_last_display_lines` 记录的行数与实际行数不符，清理不全；现在歌词行先截断纯文本再加 ANSI 码
