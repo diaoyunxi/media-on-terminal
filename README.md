@@ -620,13 +620,15 @@ mp --repeat song.mp3 10 20 5                # 重复 10-20 秒片段 5 次
 
 ### 仅下载歌词
 
-不播放媒体，仅在线搜索歌词并保存为 `.lrc` 文件。支持从媒体文件元数据/文件名构造关键词，或直接使用关键词字符串搜索。
+不播放媒体，仅在线搜索歌词并保存为 `.lrc` 文件。支持从媒体文件元数据/文件名构造关键词，或直接使用关键词字符串搜索。支持通配符批量下载。
 
 ```bash
 mp --lyrics song.mp3                            # 用 song.mp3 的元数据/文件名搜索，保存为 song.lrc
 mp --lyrics "陈奕迅 浮夸"                       # 用关键词搜索，保存为 陈奕迅 浮夸.lrc
 mp --lyrics song.mp3 --lyrics-interactive       # 交互式从候选列表中选择
 mp --lyrics song.mp3 --lyrics-output /tmp/a.lrc # 指定输出路径
+mp --lyrics ./*.mp3                             # 批量下载当前目录所有 mp3 的歌词
+mp --lyrics a.mp3 b.mp3 c.flac                  # 批量下载多个文件
 mp --lyrics "周杰伦 晴天" --lyrics-interactive   # 关键词 + 交互式
 ```
 
@@ -634,11 +636,17 @@ mp --lyrics "周杰伦 晴天" --lyrics-interactive   # 关键词 + 交互式
 - **媒体文件路径**：读取元数据（`title` + `artist`）构造关键词，无元数据时回退到清洗后的文件名；默认输出为同名 `.lrc`
 - **关键词字符串**：直接作为搜索关键词；默认输出为 `关键词.lrc`（非法字符替换为下划线）
 
+**单目标 vs 批量模式**：
+- **单目标**（1 个 TARGET）：支持 `--lyrics-interactive` 交互选择、`--lyrics-output` 指定输出路径
+- **批量模式**（多个 TARGET，如 `--lyrics ./*.mp3`）：自动逐个下载，跳过不存在的文件、非媒体文件（.txt/.lrc 等），最后输出汇总报告（成功/失败/跳过数）；`--lyrics-interactive` 和 `--lyrics-output` 在批量模式下不适用会被忽略
+
 **两种模式**：
 - **自动模式**（默认）：三源聚合（QQ音乐 + 网易云 + 酷狗）评分排序，选行数最多的有效歌词
 - **交互模式**（`--lyrics-interactive`）：列出最多 10 个候选（歌名 - 歌手 - 来源），输入序号选择
 
 **质量过滤**：仅保存带时间轴的 LRC 歌词，纯音乐占位歌词（"此歌曲为没有填词的纯音乐"等）自动丢弃，有效歌词行数 < 3 的候选视为无效。
+
+**支持的媒体扩展名**（批量模式过滤）：`.mp3` `.wav` `.ogg` `.m4a` `.flac` `.aac` `.opus` `.m4b` `.mp4` `.mkv` `.avi` `.mov` `.webm` `.flv` `.wmv` `.m4v`
 
 ## 🎮 播放控制
 
@@ -760,9 +768,9 @@ mp --lyrics "周杰伦 晴天" --lyrics-interactive   # 关键词 + 交互式
     --fps VIDEO FPS     视频帧率转换（1~240 fps）
     --strip-metadata FILE... 剥离元数据与章节（支持批量）
     --repeat FILE START END N 片段重复 N 次后接原文件结尾
-    --lyrics TARGET     仅下载歌词不播放（TARGET 为媒体文件路径或关键词字符串）
-    --lyrics-interactive 与 --lyrics 配合：交互式选择候选歌词
-    --lyrics-output PATH 与 --lyrics 配合：指定输出 .lrc 路径
+    --lyrics TARGET...  仅下载歌词不播放（TARGET 为媒体文件路径或关键词字符串，支持多个批量）
+    --lyrics-interactive 与 --lyrics 配合：交互式选择候选歌词（仅单目标）
+    --lyrics-output PATH 与 --lyrics 配合：指定输出 .lrc 路径（仅单目标）
     --fmt FMT           指定输出格式（提取/归一化/合并/混响/混音）
     --at N              截图时间点（秒）
     --count N           批量截图数量
@@ -852,6 +860,13 @@ MIT License
 欢迎提交 Issue 和 Pull Request！
 
 ## 📝 更新日志
+
+### v2.11.8
+- ✨ `--lyrics` 支持通配符批量下载 - `mp --lyrics ./*.mp3` 即可批量下载当前目录所有 mp3 的歌词
+- 🎯 参数改为 `nargs='+'` 接收多个 TARGET - 单目标保持原有行为（支持 `--lyrics-interactive`/`--lyrics-output`），多目标进入批量模式
+- 🔍 批量模式智能过滤 - 自动跳过不存在的文件、非媒体文件（.txt 等）、已是 .lrc 的文件，仅处理支持的媒体扩展名（.mp3/.wav/.ogg/.m4a/.flac/.aac/.opus/.m4b/.mp4/.mkv/.avi/.mov/.webm/.flv/.wmv/.m4v）
+- 📊 批量模式汇总报告 - 处理完成后输出总数/成功/失败/跳过统计及每个文件的详细结果（来源、行数或失败原因）
+- ⚠️ `--lyrics-interactive` 和 `--lyrics-output` 在批量模式下不适用会被忽略并提示
 
 ### v2.11.7
 - 🐛 修复自动更新"成功"但版本未变 - 旧逻辑从 `raw.githubusercontent.com/main/mp.py` 下载，但 main 分支未同步最新代码导致下载到旧版本；现在 main 分支已与开发分支同步

@@ -29,7 +29,7 @@ import unicodedata
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 
-__version__ = "2.11.7"
+__version__ = "2.11.8"
 
 
 def _display_width(s: str) -> int:
@@ -6981,10 +6981,10 @@ def show_help():
     --ascii-art VIDEO   将视频导出为 ASCII 文本动画
     --ascii-width N     ASCII 艺术宽度（字符数，默认 80）
     --ascii-fps N       ASCII 艺术帧率（默认 10）
-    --lyrics TARGET     仅下载歌词不播放。TARGET 为媒体文件路径（用其元数据/文件名搜索）
-                        或关键词字符串
-    --lyrics-interactive 与 --lyrics 配合：交互式选择候选歌词
-    --lyrics-output PATH 与 --lyrics 配合：指定输出 .lrc 路径（默认同名 .lrc 或 关键词.lrc）
+    --lyrics TARGET...  仅下载歌词不播放。TARGET 为媒体文件路径（用其元数据/文件名搜索）
+                        或关键词字符串；支持多个目标批量下载（如 --lyrics ./*）
+    --lyrics-interactive 与 --lyrics 配合：交互式选择候选歌词（仅单目标）
+    --lyrics-output PATH 与 --lyrics 配合：指定输出 .lrc 路径（仅单目标，默认同名 .lrc 或 关键词.lrc）
 
 支持格式:
     音频: MP3, WAV, OGG, M4A, FLAC, AAC, OPUS 等
@@ -7083,6 +7083,8 @@ def show_help():
     mp --lyrics "陈奕迅 浮夸"           # 用关键词直接搜索歌词，保存为 陈奕迅 浮夸.lrc
     mp --lyrics song.mp3 --lyrics-interactive  # 交互式从候选列表中选择
     mp --lyrics song.mp3 --lyrics-output /tmp/浮夸.lrc  # 指定输出路径
+    mp --lyrics ./*.mp3                 # 批量下载当前目录所有 mp3 的歌词
+    mp --lyrics a.mp3 b.mp3 c.flac      # 批量下载多个文件
 
 播放控制:
     空格键              暂停/继续
@@ -7553,8 +7555,8 @@ def main():
                         dest='repeat',
                         help='片段重复: --repeat FILE START END N (重复 N 次后接尾段)')
     # ===== 仅下载歌词 =====
-    parser.add_argument('--lyrics', metavar='TARGET', dest='lyrics',
-                        help='仅下载歌词不播放。TARGET 为媒体文件路径（用其元数据/文件名搜索）或关键词字符串')
+    parser.add_argument('--lyrics', metavar='TARGET', dest='lyrics', nargs='+',
+                        help='仅下载歌词不播放。TARGET 为媒体文件路径（用其元数据/文件名搜索）或关键词字符串；支持多个目标批量下载（如 --lyrics ./*）')
     parser.add_argument('--lyrics-interactive', action='store_true', dest='lyrics_interactive',
                         help='与 --lyrics 配合：交互式选择候选歌词')
     parser.add_argument('--lyrics-output', metavar='PATH', dest='lyrics_output',
@@ -8333,96 +8335,175 @@ def main():
 
     # ===== 仅下载歌词 =====
     if args.lyrics:
-        target = args.lyrics
+        targets = args.lyrics  # 现在是列表
         fetcher = OnlineLyricsFetcher()
         src_name_map = {"qq": "QQ音乐", "netease": "网易云", "kugou": "酷狗"}
 
-        # 判断 target 是文件路径还是关键词
-        target_path = Path(target)
-        if target_path.exists() and target_path.is_file():
-            # 媒体文件：用元数据/文件名构造关键词
-            keyword = LyricsDisplay.build_search_keyword(target_path)
-            # 默认输出路径：与媒体文件同名的 .lrc
-            if args.lyrics_output:
-                out_path = Path(args.lyrics_output)
-            else:
-                out_path = target_path.with_suffix('.lrc')
-            print(f"文件: {target_path.name}")
-            print(f"搜索关键词: {keyword}")
-        else:
-            # 关键词字符串
-            keyword = target
-            if args.lyrics_output:
-                out_path = Path(args.lyrics_output)
-            else:
-                # 关键词中的路径非法字符替换为下划线
-                safe_name = re.sub(r'[\\/:*?"<>|]', '_', keyword)
-                out_path = Path(f"{safe_name}.lrc")
-            print(f"搜索关键词: {keyword}")
+        # 媒体文件扩展名集合（用于批量模式过滤非媒体文件）
+        media_exts = {
+            '.mp3', '.wav', '.ogg', '.m4a', '.flac', '.aac', '.opus', '.m4b',
+            '.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v',
+        }
 
-        # 检查输出路径是否已存在
-        if out_path.exists():
-            print(f"提示: {out_path} 已存在，将覆盖")
+        def _download_one(target, out_override=None, interactive=False):
+            """下载单个目标的歌词，返回 (成功?, 跳过原因或来源标签, 行数)"""
+            target_path = Path(target)
+            is_file = target_path.exists() and target_path.is_file()
 
-        if args.lyrics_interactive:
-            # 交互式：显示候选列表供用户选择
-            print("正在搜索...")
-            candidates = fetcher.search_candidates(keyword, top_n=10)
-            if not candidates:
-                print("未找到候选结果")
-                sys.exit(1)
-            print(f"\n找到 {len(candidates)} 首候选:")
-            for i, (name, artist, source, _) in enumerate(candidates):
+            if is_file:
+                # 媒体文件：用元数据/文件名构造关键词
+                keyword = LyricsDisplay.build_search_keyword(target_path)
+                if out_override:
+                    out_path = Path(out_override)
+                else:
+                    out_path = target_path.with_suffix('.lrc')
+                print(f"文件: {target_path.name}")
+                print(f"搜索关键词: {keyword}")
+            else:
+                # 关键词字符串
+                keyword = target
+                if out_override:
+                    out_path = Path(out_override)
+                else:
+                    safe_name = re.sub(r'[\\/:*?"<>|]', '_', keyword)
+                    out_path = Path(f"{safe_name}.lrc")
+                print(f"搜索关键词: {keyword}")
+
+            if out_path.exists():
+                print(f"提示: {out_path} 已存在，将覆盖")
+
+            if interactive:
+                print("正在搜索...")
+                candidates = fetcher.search_candidates(keyword, top_n=10)
+                if not candidates:
+                    print("未找到候选结果")
+                    return False, "no_result", 0
+                print(f"\n找到 {len(candidates)} 首候选:")
+                for i, (name, artist, source, _) in enumerate(candidates):
+                    src_label = src_name_map.get(source, source)
+                    print(f"  [{i + 1}] {name} - {artist or '未知'}  ({src_label})")
+                print("  [0] 取消")
+                try:
+                    choice = input("\n选择序号: ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    print("\n已取消")
+                    return False, "cancelled", 0
+                if not choice or choice == '0':
+                    print("已取消")
+                    return False, "cancelled", 0
+                try:
+                    idx = int(choice) - 1
+                except ValueError:
+                    print("错误: 请输入数字序号")
+                    return False, "invalid_input", 0
+                if idx < 0 or idx >= len(candidates):
+                    print("错误: 序号超出范围")
+                    return False, "out_of_range", 0
+                cand = candidates[idx]
+                lrc = fetcher._fetch_lyric_by_candidate(cand)
+                if not fetcher._has_timeline(lrc):
+                    print(f"该候选无有效歌词（无时间轴或纯音乐占位）")
+                    return False, "no_timeline", 0
+                source = cand[2]
                 src_label = src_name_map.get(source, source)
-                print(f"  [{i + 1}] {name} - {artist or '未知'}  ({src_label})")
-            print("  [0] 取消")
-            try:
-                choice = input("\n选择序号: ").strip()
-            except (EOFError, KeyboardInterrupt):
-                print("\n已取消")
-                sys.exit(0)
-            if not choice or choice == '0':
-                print("已取消")
-                sys.exit(0)
-            try:
-                idx = int(choice) - 1
-            except ValueError:
-                print("错误: 请输入数字序号")
-                sys.exit(1)
-            if idx < 0 or idx >= len(candidates):
-                print("错误: 序号超出范围")
-                sys.exit(1)
-            cand = candidates[idx]
-            lrc = fetcher._fetch_lyric_by_candidate(cand)
-            if not fetcher._has_timeline(lrc):
-                print(f"该候选无有效歌词（无时间轴或纯音乐占位）")
-                sys.exit(1)
-            source = cand[2]
-            src_label = src_name_map.get(source, source)
-        else:
-            # 自动模式：评分排序 + 选行数最多的
-            print("正在搜索（QQ音乐 + 网易云 + 酷狗 聚合）...")
-            status, lrc, source = fetcher.search_first(keyword)
-            if status != "ok":
-                if status == "no_result":
-                    print("未找到匹配结果")
-                    print("提示: 可尝试简化关键词，或用 --lyrics-interactive 手动选择")
-                elif status == "no_timeline":
-                    print("找到候选但无带时间轴的歌词（可能为纯音乐）")
-                    print("提示: 用 --lyrics-interactive 查看所有候选")
-                elif status == "network_error":
-                    print("网络请求失败，请检查网络连接")
-                sys.exit(1)
-            src_label = src_name_map.get(source, source)
+            else:
+                print("正在搜索（QQ音乐 + 网易云 + 酷狗 聚合）...")
+                status, lrc, source = fetcher.search_first(keyword)
+                if status != "ok":
+                    if status == "no_result":
+                        print("未找到匹配结果")
+                    elif status == "no_timeline":
+                        print("找到候选但无带时间轴的歌词（可能为纯音乐）")
+                    elif status == "network_error":
+                        print("网络请求失败，请检查网络连接")
+                    return False, status, 0
+                src_label = src_name_map.get(source, source)
 
-        # 保存
-        out_path.write_text(lrc, encoding='utf-8')
-        # 统计行数
-        line_count = len([l for l in lrc.split('\n') if l.strip()])
-        print(f"\n已保存歌词到: {out_path}")
-        print(f"来源: {src_label}")
-        print(f"行数: {line_count}")
-        sys.exit(0)
+            out_path.write_text(lrc, encoding='utf-8')
+            line_count = len([l for l in lrc.split('\n') if l.strip()])
+            print(f"\n已保存歌词到: {out_path}")
+            print(f"来源: {src_label}")
+            print(f"行数: {line_count}")
+            return True, src_label, line_count
+
+        if len(targets) == 1:
+            # 单目标模式：保持原有完整行为
+            _download_one(targets[0], out_override=args.lyrics_output,
+                          interactive=args.lyrics_interactive)
+            sys.exit(0)
+        else:
+            # 批量模式
+            print(f"批量下载歌词：共 {len(targets)} 个目标")
+            if args.lyrics_output:
+                print("提示: --lyrics-output 在批量模式下不适用，已忽略")
+            if args.lyrics_interactive:
+                print("提示: --lyrics-interactive 在批量模式下不适用，已忽略")
+
+            # 过滤：仅处理存在的媒体文件
+            valid_files = []
+            skipped = []
+            for t in targets:
+                tp = Path(t)
+                if not tp.exists():
+                    skipped.append((t, "文件不存在"))
+                    continue
+                if not tp.is_file():
+                    skipped.append((t, "非文件"))
+                    continue
+                ext = tp.suffix.lower()
+                if ext not in media_exts:
+                    skipped.append((t, f"非媒体文件({ext})"))
+                    continue
+                # 跳过已是 .lrc 的文件
+                if ext == '.lrc':
+                    skipped.append((t, "已是歌词文件"))
+                    continue
+                valid_files.append(t)
+
+            if skipped:
+                print(f"\n跳过 {len(skipped)} 个目标:")
+                for t, reason in skipped:
+                    print(f"  - {t} ({reason})")
+
+            if not valid_files:
+                print("\n错误: 没有有效的媒体文件可处理")
+                sys.exit(1)
+
+            print(f"\n开始处理 {len(valid_files)} 个媒体文件...\n")
+            success_count = 0
+            fail_count = 0
+            results = []  # (文件名, 状态, 来源/原因, 行数)
+            for i, f in enumerate(valid_files, 1):
+                fp = Path(f)
+                print(f"[{i}/{len(valid_files)}] === {fp.name} ===")
+                ok, info, lines = _download_one(f, interactive=False)
+                if ok:
+                    success_count += 1
+                    results.append((fp.name, "成功", info, lines))
+                else:
+                    fail_count += 1
+                    results.append((fp.name, "失败", info, 0))
+                print()
+
+            # 汇总报告
+            print("=" * 50)
+            print("批量下载完成")
+            print("=" * 50)
+            print(f"总数: {len(valid_files)}  成功: {success_count}  失败: {fail_count}")
+            print(f"跳过: {len(skipped)}")
+            print("\n详细:")
+            for name, status, info, lines in results:
+                if status == "成功":
+                    print(f"  ✓ {name} - {info} ({lines} 行)")
+                else:
+                    reason_map = {
+                        "no_result": "未找到结果",
+                        "no_timeline": "无时间轴歌词",
+                        "network_error": "网络错误",
+                    }
+                    reason = reason_map.get(info, info)
+                    print(f"  ✗ {name} - {reason}")
+            sys.exit(0 if fail_count == 0 else 1)
 
     if not args.files:
         print("错误: 请指定要播放的媒体文件")
