@@ -8,6 +8,7 @@ Terminal Media Player - mp
 import sys
 import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
+import re
 import signal
 import platform
 import subprocess
@@ -23,10 +24,11 @@ import zipfile
 import tempfile
 import urllib.request
 import urllib.error
+import urllib.parse
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 
-__version__ = "2.10.0"
+__version__ = "2.11.0"
 
 # 配置文件路径
 CONFIG_DIR = Path.home() / '.config' / 'mp'
@@ -1744,105 +1746,461 @@ class PitchControl:
 
 
 class LyricsDisplay:
-    """歌词显示类"""
-    
+    """歌词显示类 - 支持本地 .lrc 文件和在线搜索
+
+    在线搜索策略：
+    1. 启动时若本地无 .lrc 文件，自动在线搜索（QQ优先，网易云回退）
+    2. 搜索成功后缓存为同名 .lrc 文件，下次播放直接读取本地
+    3. 自动搜索不覆盖已存在的 .lrc；手动搜索会覆盖
+    4. 仅采用带时间轴的 LRC 歌词，纯文本歌词丢弃
+    """
+
     def __init__(self, file_path: Path):
         self.file_path = file_path
         self.lyrics: List[tuple] = []  # (时间戳, 歌词内容)
         self.current_index = -1
         self.offset = 0.0  # 歌词时间偏移（秒）
         self.enabled = True
+        # 在线搜索相关
+        self.fetcher: Optional[OnlineLyricsFetcher] = None
+        self.online_source: Optional[str] = None  # 当前歌词来源 "qq" / "netease" / None(本地)
+        self.auto_searched: bool = False  # 是否已尝试过自动搜索
         self.load_lyrics()
-    
+
+    def _lrc_path(self) -> Path:
+        """获取同名 .lrc 文件路径"""
+        return self.file_path.with_suffix('.lrc')
+
+    def _find_local_lrc(self) -> Optional[Path]:
+        """查找本地 .lrc 文件（含同名 .txt 回退）"""
+        lrc_path = self._lrc_path()
+        if lrc_path.exists():
+            return lrc_path
+        # 同级目录查找 stem.lrc / stem.txt
+        for ext in ['.lrc', '.txt']:
+            potential = self.file_path.parent / (self.file_path.stem + ext)
+            if potential.exists():
+                return potential
+        return None
+
     def load_lyrics(self):
-        """加载歌词文件"""
-        # 尝试查找同名 .lrc 文件
-        lrc_path = self.file_path.with_suffix('.lrc')
-        
-        # 也尝试在同级目录查找
-        if not lrc_path.exists():
-            for ext in ['.lrc', '.txt']:
-                potential = self.file_path.parent / (self.file_path.stem + ext)
-                if potential.exists():
-                    lrc_path = potential
-                    break
-        
-        if not lrc_path.exists():
+        """加载本地歌词文件"""
+        lrc_path = self._find_local_lrc()
+        if not lrc_path:
             self.lyrics = []
             return
-        
         try:
             with open(lrc_path, 'r', encoding='utf-8') as f:
                 self._parse_lrc(f.read())
         except Exception:
             self.lyrics = []
-    
+
     def _parse_lrc(self, content: str):
         """解析LRC格式歌词"""
         self.lyrics = []
-        
+
         for line in content.split('\n'):
             line = line.strip()
             if not line:
                 continue
-            
+
             # 解析时间标签 [mm:ss.xx] 或 [mm:ss:xx]
-            import re
             time_tags = re.findall(r'\[(\d{2}):(\d{2})([.:])(\d{2})\](.*)', line)
-            
+
             if time_tags:
                 for tag in time_tags:
                     minutes = int(tag[0])
                     seconds = int(tag[1])
                     ms = int(tag[3]) / 100.0 if tag[2] == '.' else int(tag[3])
                     text = tag[4].strip()
-                    
+
                     if text:
                         timestamp = minutes * 60 + seconds + ms
                         self.lyrics.append((timestamp, text))
-            
+
             # 解析偏移标签 [offset:ms]
             offset_match = re.search(r'\[offset:([+-]?\d+)\]', line)
             if offset_match:
                 self.offset = int(offset_match.group(1)) / 1000.0
-        
+
         # 按时间排序
         self.lyrics.sort(key=lambda x: x[0])
-    
+
     def get_lyrics_at_time(self, current_time: float) -> tuple:
         """获取当前时间对应的歌词和下一句"""
         adjusted_time = current_time + self.offset
-        
+
         # 找到当前歌词索引
         new_index = -1
         for i, (timestamp, _) in enumerate(self.lyrics):
             if timestamp <= adjusted_time:
                 new_index = i
-        
+
         self.current_index = new_index
-        
+
         if new_index >= 0 and new_index < len(self.lyrics):
             current = self.lyrics[new_index][1]
             next_line = self.lyrics[new_index + 1][1] if new_index + 1 < len(self.lyrics) else ''
             return current, next_line
-        
+
         return '', ''
-    
+
     def display_current(self, current_time: float, terminal_width: int = 80):
         """显示当前歌词"""
         if not self.enabled or not self.lyrics:
             return
-        
+
         current, next_line = self.get_lyrics_at_time(current_time)
-        
+
         if current:
             # 居中显示当前歌词
             padding = max(0, (terminal_width - len(current)) // 2)
             print(f"\r{' ' * padding}{current}", end='', flush=True)
-        
+
         if next_line:
             next_padding = max(0, (terminal_width - len(next_line)) // 2)
             print(f"\r{' ' * next_padding}{next_line}", end='', flush=True)
+
+    # ===== 在线搜索相关方法 =====
+
+    @staticmethod
+    def build_search_keyword(file_path: Path) -> str:
+        """构造搜索关键词：元数据优先，文件名回退
+
+        优先级：
+        1. ffprobe 提取的 title + artist
+        2. 清洗后的文件名（去扩展名、序号、音质标识等）
+        """
+        # 1. 尝试从元数据获取
+        try:
+            cmd = [
+                'ffprobe', '-v', 'quiet',
+                '-print_format', 'json',
+                '-show_format',
+                str(file_path)
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0:
+                data = json.loads(result.stdout)
+                tags = data.get('format', {}).get('tags', {}) or {}
+                # 兼容大小写键
+                title = tags.get('title') or tags.get('TITLE')
+                artist = tags.get('artist') or tags.get('ARTIST')
+                if title:
+                    title = str(title).strip()
+                    if artist:
+                        return f"{artist} {title}"
+                    return title
+        except Exception:
+            pass
+        # 2. 回退到清洗后的文件名
+        return OnlineLyricsFetcher._normalize_filename(file_path.stem)
+
+    def _ensure_fetcher(self):
+        """惰性初始化在线搜索器"""
+        if self.fetcher is None:
+            self.fetcher = OnlineLyricsFetcher()
+
+    def _save_lrc(self, lrc_text: str) -> bool:
+        """将歌词保存为同名 .lrc 文件
+
+        返回: 是否保存成功
+        """
+        try:
+            lrc_path = self._lrc_path()
+            with open(lrc_path, 'w', encoding='utf-8') as f:
+                f.write(lrc_text)
+            return True
+        except Exception:
+            return False
+
+    def _apply_lrc(self, lrc_text: str, source: str, cache: bool = True) -> bool:
+        """应用歌词文本并（可选）缓存
+
+        参数:
+            lrc_text: LRC 格式歌词
+            source: 来源 "qq" / "netease"
+            cache: 是否缓存为 .lrc 文件
+
+        返回: 是否成功应用
+        """
+        self._parse_lrc(lrc_text)
+        if not self.lyrics:
+            return False
+        self.online_source = source
+        self.enabled = True
+        if cache:
+            self._save_lrc(lrc_text)
+        return True
+
+    def auto_search_online(self) -> Tuple[str, Optional[str]]:
+        """自动在线搜索（不覆盖本地已存在的 .lrc）
+
+        返回:
+            (status, message)
+            status: "ok" | "no_result" | "no_timeline" | "network_error" | "skipped_local_exists" | "already_searched"
+        """
+        # 已有本地歌词则跳过
+        if self.lyrics:
+            return "skipped_local_exists", "本地已有歌词，跳过在线搜索"
+        # 防止重复自动搜索
+        if self.auto_searched:
+            return "already_searched", "已尝试过自动搜索"
+        self.auto_searched = True
+
+        self._ensure_fetcher()
+        keyword = self.build_search_keyword(self.file_path)
+        if not keyword:
+            return "no_result", "无法构造搜索关键词"
+
+        status, lrc, source = self.fetcher.search_first(keyword)
+        if status == "ok" and lrc and source:
+            if self._apply_lrc(lrc, source, cache=True):
+                src_name = "QQ音乐" if source == "qq" else "网易云"
+                return "ok", f"在线搜索成功（{src_name}），已缓存为 .lrc"
+            return "no_timeline", "歌词解析失败"
+        elif status == "no_result":
+            return "no_result", f"未找到 '{keyword}' 的歌词"
+        elif status == "no_timeline":
+            return "no_timeline", f"找到歌词但无时间轴，已丢弃"
+        else:
+            return "network_error", "网络搜索失败"
+
+    def manual_search_candidates(self, keyword: Optional[str] = None) -> Tuple[str, List[Tuple[str, str, str, str]], str]:
+        """手动搜索：返回候选列表
+
+        参数:
+            keyword: 自定义关键词；为空则自动构造
+
+        返回:
+            (status, candidates, used_keyword)
+            status: "ok" | "no_result" | "network_error"
+        """
+        self._ensure_fetcher()
+        used = keyword or self.build_search_keyword(self.file_path)
+        try:
+            candidates = self.fetcher.search_candidates(used, top_n=5)
+        except Exception:
+            return "network_error", [], used
+        if not candidates:
+            return "no_result", [], used
+        return "ok", candidates, used
+
+    def apply_candidate_by_index(self, index: int, overwrite: bool = True) -> Tuple[str, Optional[str]]:
+        """应用候选索引对应的歌词（手动选择，默认覆盖本地）
+
+        返回:
+            (status, message)
+        """
+        self._ensure_fetcher()
+        # 本地已存在且不覆盖
+        if not overwrite and self._find_local_lrc() is not None:
+            return "skipped_local_exists", "本地已存在 .lrc，未覆盖"
+
+        status, lrc, source = self.fetcher.fetch_lyric_by_index(index)
+        if status == "ok" and lrc and source:
+            if self._apply_lrc(lrc, source, cache=True):
+                src_name = "QQ音乐" if source == "qq" else "网易云"
+                return "ok", f"已应用并缓存歌词（{src_name}）"
+            return "no_timeline", "歌词解析失败"
+        elif status == "no_result":
+            return "no_result", "未找到该候选的歌词"
+        elif status == "no_timeline":
+            return "no_timeline", "该候选歌词无时间轴，已丢弃"
+        return "network_error", "获取歌词失败"
+
+
+class OnlineLyricsFetcher:
+    """在线歌词搜索器 - 聚合 QQ音乐 + 网易云音乐
+
+    策略：
+    1. 优先查询 QQ音乐（原唱匹配好，时间轴完整）
+    2. QQ音乐无结果或无时间轴时回退网易云
+    3. 仅采用带时间轴的 LRC 歌词，纯文本歌词丢弃
+    """
+
+    UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    TIMEOUT = 8  # 单次请求超时秒数
+
+    def __init__(self):
+        # 候选结果缓存：(song_name, artist, source, song_id_or_mid)
+        self._cached_candidates: List[Tuple[str, str, str, str]] = []
+
+    @staticmethod
+    def _http_get(url: str, extra_headers: Optional[Dict[str, str]] = None) -> str:
+        """发起 GET 请求并返回文本
+
+        参数:
+            url: 请求地址
+            extra_headers: 额外请求头
+
+        返回:
+            响应文本；失败抛出异常
+        """
+        headers = {"User-Agent": OnlineLyricsFetcher.UA}
+        if extra_headers:
+            headers.update(extra_headers)
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=OnlineLyricsFetcher.TIMEOUT) as resp:
+            return resp.read().decode("utf-8", errors="replace")
+
+    @staticmethod
+    def _has_timeline(lrc: str) -> bool:
+        """判断 LRC 文本是否包含时间轴标签"""
+        return bool(lrc and re.search(r"\[\d{2}:\d{2}", lrc))
+
+    @staticmethod
+    def _normalize_filename(stem: str) -> str:
+        """清洗文件名作为搜索关键词
+
+        去除常见干扰字符：扩展名残留、音质标识、序号、括注等
+        """
+        # 去除常见音质/版本标识
+        s = re.sub(r"\((?:FLAC|flac|320|320k|320kbps|HQ|SQ|HD|无损|高品质)\)", "", stem)
+        s = re.sub(r"\[(?:FLAC|flac|320|320k|320kbps|HQ|SQ|HD|无损|高品质)\]", "", s)
+        # 去除前导序号 "01. " "01 - " "01_-_ " 等
+        s = re.sub(r"^\d{1,3}[\s.\-_]+", "", s)
+        # 去除网址
+        s = re.sub(r"https?://\S+", "", s)
+        # 把常见分隔符替换为空格（先替换分隔符，再合并空白）
+        s = re.sub(r"[_\-]+", " ", s)
+        # 多空白合一
+        s = re.sub(r"\s+", " ", s).strip()
+        return s
+
+    def _qq_search(self, keyword: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """QQ音乐搜索"""
+        url = (f"https://c.y.qq.com/soso/fcgi-bin/client_search_cp"
+               f"?w={urllib.parse.quote(keyword)}&format=json&n={limit}&p=1")
+        text = self._http_get(url, extra_headers={"Referer": "https://y.qq.com/"})
+        data = json.loads(text)
+        return data.get("data", {}).get("song", {}).get("list", []) or []
+
+    def _qq_lyric(self, songmid: str) -> str:
+        """QQ音乐获取歌词"""
+        url = (f"https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg"
+               f"?songmid={songmid}&format=json&nobase64=1")
+        text = self._http_get(url, extra_headers={"Referer": "https://y.qq.com/"})
+        # QQ音乐可能返回 jsonp 包裹
+        if text.startswith("callback("):
+            text = re.sub(r"^callback\(|\)$", "", text)
+        data = json.loads(text)
+        return data.get("lyric", "") or ""
+
+    def _netease_search(self, keyword: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """网易云搜索"""
+        url = (f"https://music.163.com/api/search/get"
+               f"?s={urllib.parse.quote(keyword)}&type=1&limit={limit}")
+        text = self._http_get(url)
+        data = json.loads(text)
+        return data.get("result", {}).get("songs", []) or []
+
+    def _netease_lyric(self, song_id: int) -> str:
+        """网易云获取歌词"""
+        url = f"https://music.163.com/api/song/lyric?id={song_id}&lv=1&kv=1&tv=-1"
+        text = self._http_get(url)
+        data = json.loads(text)
+        return data.get("lrc", {}).get("lyric", "") or ""
+
+    def _collect_candidates(self, keyword: str) -> List[Tuple[str, str, str, str]]:
+        """聚合两源搜索结果作为候选
+
+        返回: [(song_name, artist, source, id_or_mid), ...]
+        """
+        candidates: List[Tuple[str, str, str, str]] = []
+        # QQ音乐候选
+        try:
+            for s in self._qq_search(keyword):
+                name = s.get("songname", "") or ""
+                artists = "/".join(a.get("name", "") for a in s.get("singer", []))
+                mid = s.get("songmid", "") or ""
+                if name and mid:
+                    candidates.append((name, artists, "qq", mid))
+        except Exception:
+            pass
+        # 网易云候选（去重，避免与QQ同名重复展示）
+        try:
+            for s in self._netease_search(keyword):
+                name = s.get("name", "") or ""
+                artists = "/".join(a.get("name", "") for a in s.get("artists", []))
+                sid = s.get("id", 0) or 0
+                if name and sid and not any(c[0] == name and c[1] == artists for c in candidates):
+                    candidates.append((name, artists, "netease", str(sid)))
+        except Exception:
+            pass
+        return candidates
+
+    def _fetch_lyric_by_candidate(self, candidate: Tuple[str, str, str, str]) -> str:
+        """根据候选获取歌词文本"""
+        name, artist, source, ident = candidate
+        try:
+            if source == "qq":
+                return self._qq_lyric(ident)
+            else:
+                return self._netease_lyric(int(ident))
+        except Exception:
+            return ""
+
+    def search_first(self, keyword: str) -> Tuple[str, Optional[str], Optional[str]]:
+        """自动搜索：返回首个带时间轴的歌词
+
+        参数:
+            keyword: 搜索关键词
+
+        返回:
+            (status, lrc_text, source)
+            status: "ok" | "no_result" | "no_timeline" | "network_error"
+        """
+        self._cached_candidates = []
+        try:
+            candidates = self._collect_candidates(keyword)
+        except Exception as e:
+            return "network_error", None, None
+        self._cached_candidates = candidates
+
+        if not candidates:
+            return "no_result", None, None
+
+        # 逐个候选尝试，取首个带时间轴的
+        for cand in candidates:
+            lrc = self._fetch_lyric_by_candidate(cand)
+            if self._has_timeline(lrc):
+                return "ok", lrc, cand[2]
+
+        return "no_timeline", None, None
+
+    def search_candidates(self, keyword: str, top_n: int = 5) -> List[Tuple[str, str, str, str]]:
+        """手动搜索：返回候选列表（前 top_n 项）
+
+        返回: [(song_name, artist, source, id_or_mid), ...]
+        """
+        try:
+            candidates = self._collect_candidates(keyword)
+        except Exception:
+            candidates = []
+        self._cached_candidates = candidates
+        return candidates[:top_n]
+
+    def fetch_lyric_by_index(self, index: int) -> Tuple[str, Optional[str], Optional[str]]:
+        """根据缓存候选索引获取歌词
+
+        返回:
+            (status, lrc_text, source)
+        """
+        if not self._cached_candidates or index < 0 or index >= len(self._cached_candidates):
+            return "no_result", None, None
+        cand = self._cached_candidates[index]
+        lrc = self._fetch_lyric_by_candidate(cand)
+        if not lrc:
+            return "no_result", None, None
+        if not self._has_timeline(lrc):
+            return "no_timeline", None, None
+        return "ok", lrc, cand[2]
+
+    @property
+    def cached_candidates(self) -> List[Tuple[str, str, str, str]]:
+        """已缓存的候选列表（只读视图）"""
+        return list(self._cached_candidates)
 
 
 class AudioVisualizer:
@@ -2151,15 +2509,109 @@ class AudioPlayer:
     def load_audio(self):
         """加载音频文件"""
         print(f"正在加载: {self.file_path.name}")
-        
+
         duration_sec = self.get_audio_duration()
         if duration_sec == 0:
             print("警告: 无法获取音频时长")
             self.total_duration = 180000
         else:
             self.total_duration = duration_sec * 1000
-        
+
         print(f"时长: {self.format_time(self.total_duration)}")
+
+        # 本地无歌词时，后台自动在线搜索（不阻塞播放）
+        if not self.lyrics.lyrics:
+            t = threading.Thread(target=self._auto_search_lyrics_thread, daemon=True)
+            t.start()
+
+    def _auto_search_lyrics_thread(self):
+        """后台线程：自动在线搜索歌词"""
+        try:
+            status, msg = self.lyrics.auto_search_online()
+            if status == "ok":
+                print(f"\n📝 {msg}")
+            elif status in ("no_result", "no_timeline", "network_error"):
+                # 静默失败，不打扰用户；可按 N 手动重试
+                pass
+        except Exception:
+            pass
+
+    def _manual_search_lyrics_interactive(self):
+        """交互式手动搜索歌词（快捷键 N 触发）
+
+        流程：
+        1. 提示输入关键词（默认使用元数据/文件名自动构造）
+        2. 显示前5首候选
+        3. 用户选择序号应用，并缓存为 .lrc
+        """
+        # 临时恢复终端，便于 input() 交互
+        try:
+            import termios
+            import tty
+            fd = sys.stdin.fileno()
+            old_settings = termios.tcgetattr(fd)
+            try:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            except Exception:
+                pass
+        except Exception:
+            old_settings = None
+
+        was_paused = self.is_paused
+        if not was_paused:
+            self.pause()
+
+        try:
+            default_kw = LyricsDisplay.build_search_keyword(self.file_path)
+            print("\n" + "=" * 60)
+            print("  在线搜索歌词")
+            print("=" * 60)
+            try:
+                kw_input = input(f"  搜索关键词 [{default_kw}] (回车使用默认): ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print("\n  已取消")
+                return
+            keyword = kw_input or default_kw
+            if not keyword:
+                print("  关键词为空，已取消")
+                return
+
+            print(f"  正在搜索 '{keyword}' ...")
+            status, candidates, used = self.lyrics.manual_search_candidates(keyword)
+            if status != "ok" or not candidates:
+                print(f"  未找到结果（{status}）")
+                print("  提示：可尝试简化关键词，如只输入歌名")
+                return
+
+            print(f"\n  找到 {len(candidates)} 首候选:")
+            for i, (name, artist, source, _) in enumerate(candidates):
+                src_label = "QQ音乐" if source == "qq" else "网易云"
+                print(f"  [{i + 1}] {name} - {artist or '未知'}  ({src_label})")
+            print("  [0] 取消")
+
+            try:
+                choice = input("\n  选择序号: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print("\n  已取消")
+                return
+            if not choice or choice == "0":
+                print("  已取消")
+                return
+            try:
+                idx = int(choice) - 1
+            except ValueError:
+                print("  无效的序号")
+                return
+
+            status, msg = self.lyrics.apply_candidate_by_index(idx, overwrite=True)
+            print(f"  {msg}")
+            if status == "ok":
+                print(f"  共加载 {len(self.lyrics.lyrics)} 行歌词，按 [o] 切换显示")
+            print("=" * 60)
+        finally:
+            # 恢复播放状态
+            if not was_paused:
+                self.pause()  # 再次切换回播放
     
     def play_from_position(self, position_sec):
         """从指定位置开始播放"""
@@ -2318,7 +2770,12 @@ class AudioPlayer:
         
         # 歌词
         if self.lyrics.enabled and self.lyrics.lyrics:
-            status_parts.append("📝 歌词")
+            if self.lyrics.online_source == "qq":
+                status_parts.append("📝 歌词(QQ)")
+            elif self.lyrics.online_source == "netease":
+                status_parts.append("📝 歌词(网易)")
+            else:
+                status_parts.append("📝 歌词")
 
         # 均衡器
         if self.equalizer.enabled:
@@ -2519,7 +2976,7 @@ class AudioPlayer:
         print("\n控制:")
         print("  [空格] 暂停/继续  [←/→] 后退/前进10秒  [↑/↓] 音量")
         print("  [</>] 播放速度  [l] 循环模式  [i] 媒体信息")
-        print("  [v] 可视化器  [b] 保存书签  [r] 恢复书签  [o] 歌词")
+        print("  [v] 可视化器  [b] 保存书签  [r] 恢复书签  [o] 歌词开关  [N] 在线搜索歌词")
         print("  [f] 收藏/取消  [a] AB循环  [t] 定时停止  [h] 播放历史")
         print("  [e] 切换均衡器  [E] 均衡器预设  [Q] 播放队列  [S] 统计")
         print("  [c] 转换格式  [m] 编辑元数据  [p/P] 音调控制  [x] 交叉淡入")
@@ -2617,6 +3074,8 @@ class AudioPlayer:
                             self.pitch_control.reset()
                             print(f"\n音调已重置")
                             self.play_from_position(self.current_position / 1000)
+                        elif key == b'N':
+                            self._manual_search_lyrics_interactive()
                         elif key == b'\xe0':
                             key2 = msvcrt.getch()
                             if key2 == b'K':
@@ -2737,6 +3196,8 @@ class AudioPlayer:
                                 self.pitch_control.reset()
                                 print(f"\n音调已重置")
                                 self.play_from_position(self.current_position / 1000)
+                            elif ch == 'N':
+                                self._manual_search_lyrics_interactive()
                 finally:
                     termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
         except Exception as e:
@@ -6301,7 +6762,8 @@ def show_help():
     v                   切换音频可视化器
     b                   保存当前播放位置为书签
     r                   从书签恢复播放
-    o                   切换歌词显示（需要同名.lrc文件）
+    o                   切换歌词显示（本地.lrc或在线搜索缓存）
+    N                   在线搜索歌词（QQ音乐+网易云聚合，手动选择候选）
     f                   收藏/取消收藏当前歌曲
     a                   设置AB循环（按两次设置A点和B点）
     t                   设置定时停止（睡眠定时器）
@@ -6327,6 +6789,9 @@ def show_help():
     • 历史保存在 ~/.config/mp/history.json
     • 媒体库索引保存在 ~/.config/mp/library.json
     • 歌词文件需与音频文件同名（.lrc格式）
+    • 在线歌词：本地无.lrc时自动搜索（QQ音乐+网易云聚合），按 N 手动搜索
+    • 搜索关键词优先使用元数据(title+artist)，无元数据时回退清洗后的文件名
+    • 在线歌词成功后自动缓存为同名.lrc，下次播放直接读取本地
     • 录制/转换/截图/归一化/GIF等工具命令无需播放即可独立使用
 """
     print(help_text)
