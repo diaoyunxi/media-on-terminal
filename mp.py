@@ -29,7 +29,7 @@ import unicodedata
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 
-__version__ = "2.11.4"
+__version__ = "2.11.5"
 
 
 def _display_width(s: str) -> int:
@@ -2718,6 +2718,7 @@ class AudioPlayer:
 
         # 终端显示状态：跟踪上次输出的行数，用于精确清除避免残留
         self._last_display_lines = 0
+        self._last_term_width = 0  # 上次终端宽度，用于检测窗口大小变化
         
         self.load_audio()
     
@@ -3031,6 +3032,22 @@ class AudioPlayer:
         except:
             term_width = 80
 
+        # 检测终端宽度变化：如果窗口大小变了，之前记录的行数不可靠，
+        # 需要清除所有旧行并重置计数
+        if self._last_term_width != 0 and self._last_term_width != term_width:
+            n = self._last_display_lines
+            if n > 0:
+                if n > 1:
+                    sys.stdout.write(f"\033[{n - 1}A")
+                for i in range(n):
+                    sys.stdout.write("\r\033[2K")
+                    if i < n - 1:
+                        sys.stdout.write("\033[1B")
+                sys.stdout.write("\r")
+                sys.stdout.flush()
+            self._last_display_lines = 0
+        self._last_term_width = term_width
+
         # 动态调整 bar 长度，保证整行显示宽度不超过 term_width
         # 避免 emoji 占 2 列但 len() 算 1 导致截断后实际宽度仍超限而自动换行
         prefix = f"{status} |"
@@ -3046,24 +3063,28 @@ class AudioPlayer:
         line1 = f"{prefix}{bar}{suffix}"
 
         # 收集本次要输出的所有行（按显示宽度截断，避免自动换行导致行数错乱）
-        lines = [_truncate_to_width(line1, term_width)]
+        # 关键：每行截断到 term_width - 1，留 1 列余量，防止内容恰好填满一行时
+        # 某些终端自动换行（光标到行尾再写下一字符会换行）
+        safe_width = term_width - 1
+        lines = [_truncate_to_width(line1, safe_width)]
 
         # 可视化器频谱
         if self.visualizer_enabled:
             viz_lines = self.visualizer.render().split('\n')
             for line in viz_lines[-4:]:  # 只显示最后4行
-                lines.append(_truncate_to_width("  " + line, term_width))
+                lines.append(_truncate_to_width("  " + line, safe_width))
 
         # 歌词当前行：加粗 + 青色，居中显示
         if self.lyrics.enabled and self.lyrics.lyrics:
             current_time_sec = self.current_position / 1000
             current_lyric, _ = self.lyrics.get_lyrics_at_time(current_time_sec)
             if current_lyric:
-                # 按显示宽度计算居中 padding
-                lyric_w = _display_width(current_lyric)
-                padding = max(0, (term_width - lyric_w) // 2)
-                # \033[1;36m = 加粗青色，\033[0m 重置
-                lines.append(' ' * padding + f"\033[1;36m{current_lyric}\033[0m")
+                # 先截断歌词纯文本到安全宽度，再加 ANSI 码
+                # ANSI 码（\033[1;36m / \033[0m）不占显示宽度，无需计入
+                truncated = _truncate_to_width(current_lyric, safe_width)
+                lyric_w = _display_width(truncated)
+                padding = max(0, (safe_width - lyric_w) // 2)
+                lines.append(' ' * padding + f"\033[1;36m{truncated}\033[0m")
 
         # 清除上次输出的所有行（避免终端残留）
         # 关键：必须确保每行实际显示宽度 <= term_width，否则自动换行会让行数对不上
