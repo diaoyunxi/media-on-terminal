@@ -7406,6 +7406,11 @@ def main():
         show_help()
         sys.exit(0)
     
+    # 处理版本命令（在依赖检查之前）
+    if len(sys.argv) > 1 and sys.argv[1] == '--version':
+        print(f"mp v{__version__}")
+        sys.exit(0)
+    
     # 检查依赖
     check_and_install_dependencies()
     
@@ -7561,6 +7566,7 @@ def main():
                         help='与 --lyrics 配合：交互式选择候选歌词')
     parser.add_argument('--lyrics-output', metavar='PATH', dest='lyrics_output',
                         help='与 --lyrics 配合：指定输出 .lrc 路径（默认同名 .lrc 或 关键词.lrc）')
+    parser.add_argument('--version', action='store_true', help='显示版本信息并检查更新')
     parser.add_argument('files', nargs='*', help='媒体文件路径')
     
     args = parser.parse_args()
@@ -8506,9 +8512,7 @@ def main():
             sys.exit(0 if fail_count == 0 else 1)
 
     if not args.files:
-        print("错误: 请指定要播放的媒体文件")
-        print("使用 'mp --help' 查看使用方法")
-        sys.exit(1)
+        args.files = ['.']
     
     # 加载配置
     config = Config()
@@ -8606,5 +8610,6 @@ def main():
 
 
 if __name__ == "__main__":
-    check_for_update()
+    if len(sys.argv) > 1 and sys.argv[1] == '--version':
+        check_for_update()
     main()
