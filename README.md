@@ -853,6 +853,12 @@ MIT License
 
 ## 📝 更新日志
 
+### v2.11.7
+- 🐛 修复自动更新"成功"但版本未变 - 旧逻辑从 `raw.githubusercontent.com/main/mp.py` 下载，但 main 分支未同步最新代码导致下载到旧版本；现在 main 分支已与开发分支同步
+- 🚀 重构自动更新策略 - 按优先级三级回退：① Release Assets 下载 releases zip（最可靠，版本对应，含 mp.py + install.sh）→ ② raw.githubusercontent.com 下载 main 分支 mp.py（回退）→ ③ git pull（仅当 mp.py 所在目录有 .git）
+- 📦 `_fetch_latest_version_github` 现返回 Release Assets 下载链接列表，供更新逻辑使用
+- 🔧 Assets zip 解压后同时替换 mp.py 和 install.sh，保证安装脚本也是最新
+
 ### v2.11.6
 - ✨ 新增仅下载歌词功能 `--lyrics TARGET` - 不播放媒体，仅在线搜索歌词并保存为 `.lrc` 文件
 - 🎯 TARGET 支持两种形式：媒体文件路径（用元数据/文件名构造关键词，输出同名 `.lrc`）或关键词字符串（输出 `关键词.lrc`）

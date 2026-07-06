@@ -29,7 +29,7 @@ import unicodedata
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 
-__version__ = "2.11.6"
+__version__ = "2.11.7"
 
 
 def _display_width(s: str) -> int:
@@ -7192,21 +7192,37 @@ def play_playlist(playlist: Playlist, config: Config, loop: str = 'none'):
 GITHUB_REPO = "diaoyunxi/media-on-terminal"
 
 def _fetch_latest_version_github():
-    """从 GitHub 获取最新版本号（优先 Releases，回退 Tags）"""
+    """从 GitHub 获取最新版本号及 Release 信息（优先 Releases，回退 Tags）
+
+    返回: (tag, release_url, assets) 三元组
+        tag: 版本号字符串（如 "v2.11.6"），失败为 None
+        release_url: Release 页面 URL，失败为 None
+        assets: Release Assets 列表 [{name, url, size}, ...]，失败为 []
+    """
     import urllib.request
     import urllib.error
 
-    # 尝试 Releases API
+    # 尝试 Releases API（含 assets 下载链接）
     try:
         url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
         req = urllib.request.Request(url, headers={"User-Agent": "mp-player"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
-            return data.get("tag_name"), data.get("html_url")
+            tag = data.get("tag_name")
+            html_url = data.get("html_url")
+            assets = []
+            for a in data.get("assets", []) or []:
+                assets.append({
+                    "name": a.get("name", ""),
+                    "url": a.get("browser_download_url", ""),
+                    "size": a.get("size", 0),
+                })
+            if tag:
+                return tag, html_url, assets
     except Exception:
         pass
 
-    # 回退到 Tags API
+    # 回退到 Tags API（无 assets 信息）
     try:
         url = f"https://api.github.com/repos/{GITHUB_REPO}/tags"
         req = urllib.request.Request(url, headers={"User-Agent": "mp-player"})
@@ -7214,11 +7230,11 @@ def _fetch_latest_version_github():
             data = json.loads(resp.read().decode())
             if data:
                 tag = data[0].get("name")
-                return tag, f"https://github.com/{GITHUB_REPO}/releases/tag/{tag}"
+                return tag, f"https://github.com/{GITHUB_REPO}/releases/tag/{tag}", []
     except Exception:
         pass
 
-    return None, None
+    return None, None, []
 
 
 def _compare_versions(v1, v2):
@@ -7239,9 +7255,20 @@ def _compare_versions(v1, v2):
 
 
 def check_for_update():
-    """检查 GitHub 上是否有新版本，如有则询问用户是否更新"""
+    """检查 GitHub 上是否有新版本，如有则询问用户是否更新
+
+    更新策略（按优先级）：
+    1. Release Assets 下载 releases zip（最可靠，版本对应，含 mp.py + install.sh）
+    2. raw.githubusercontent.com 下载 main 分支 mp.py（回退方案）
+    3. git pull（仅当 mp.py 所在目录有 .git 时）
+    """
+    import urllib.request
+    import urllib.error
+    import zipfile
+    import tempfile
+
     try:
-        latest, release_url = _fetch_latest_version_github()
+        latest, release_url, assets = _fetch_latest_version_github()
         if not latest:
             return
 
@@ -7260,11 +7287,93 @@ def check_for_update():
         except (EOFError, KeyboardInterrupt):
             return
 
-        if choice == 'y':
-            print("正在更新...")
-            # 尝试 git pull
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            if os.path.isdir(os.path.join(script_dir, '.git')):
+        if choice != 'y':
+            return
+
+        print("正在更新...")
+        current_file = os.path.abspath(__file__)
+        script_dir = os.path.dirname(current_file)
+        updated = False
+
+        # 策略1：从 Release Assets 下载 releases zip（优先）
+        # 寻找名称包含 "releases" 的 asset
+        if not updated and assets:
+            releases_asset = None
+            for a in assets:
+                name = a.get("name", "").lower()
+                if "release" in name and name.endswith(".zip"):
+                    releases_asset = a
+                    break
+            # 若没有 releases zip，回退到第一个 zip asset
+            if not releases_asset:
+                for a in assets:
+                    if a.get("name", "").lower().endswith(".zip"):
+                        releases_asset = a
+                        break
+
+            if releases_asset and releases_asset.get("url"):
+                try:
+                    asset_url = releases_asset["url"]
+                    asset_name = releases_asset.get("name", "asset.zip")
+                    print(f"  下载 {asset_name} ...")
+                    req = urllib.request.Request(asset_url, headers={"User-Agent": "mp-player"})
+                    with urllib.request.urlopen(req, timeout=60) as resp:
+                        content = resp.read()
+                    # 写入临时文件并解压
+                    with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+                        tmp.write(content)
+                        tmp_path = tmp.name
+                    try:
+                        with zipfile.ZipFile(tmp_path, 'r') as zf:
+                            # 优先替换 mp.py
+                            names = zf.namelist()
+                            mp_name = None
+                            for n in names:
+                                if n.endswith("mp.py") and "/__pycache__/" not in n:
+                                    mp_name = n
+                                    break
+                            if mp_name:
+                                with zf.open(mp_name) as src, open(current_file, 'wb') as dst:
+                                    dst.write(src.read())
+                                # 若 zip 含 install.sh 也一并替换
+                                inst_name = None
+                                for n in names:
+                                    if n.endswith("install.sh"):
+                                        inst_name = n
+                                        break
+                                if inst_name:
+                                    inst_path = os.path.join(script_dir, "install.sh")
+                                    with zf.open(inst_name) as src, open(inst_path, 'wb') as dst:
+                                        dst.write(src.read())
+                                updated = True
+                            else:
+                                print(f"  Assets 中未找到 mp.py")
+                    finally:
+                        try:
+                            os.unlink(tmp_path)
+                        except OSError:
+                            pass
+                except Exception as e:
+                    print(f"  从 Release Assets 更新失败: {e}")
+
+        # 策略2：raw.githubusercontent.com 下载 main 分支 mp.py（回退）
+        if not updated:
+            try:
+                raw_url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/mp.py"
+                print(f"  下载 main 分支 mp.py ...")
+                req = urllib.request.Request(raw_url, headers={"User-Agent": "mp-player"})
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    content = resp.read()
+                with open(current_file, 'wb') as f:
+                    f.write(content)
+                updated = True
+            except Exception as e:
+                print(f"  从 raw 下载失败: {e}")
+
+        # 策略3：git pull（最后回退，仅当目录有 .git）
+        if not updated and os.path.isdir(os.path.join(script_dir, '.git')):
+            try:
+                print(f"  尝试 git pull ...")
                 result = subprocess.run(
                     ['git', 'pull'],
                     cwd=script_dir,
@@ -7273,25 +7382,18 @@ def check_for_update():
                     timeout=30
                 )
                 if result.returncode == 0:
-                    print("更新成功！请重新运行程序。")
-                    sys.exit(0)
+                    updated = True
                 else:
-                    print(f"git pull 失败: {result.stderr}")
-
-            # 回退：下载最新的 mp.py
-            try:
-                raw_url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/mp.py"
-                req = urllib.request.Request(raw_url, headers={"User-Agent": "mp-player"})
-                with urllib.request.urlopen(req, timeout=30) as resp:
-                    content = resp.read()
-                with open(__file__, 'wb') as f:
-                    f.write(content)
-                print("更新成功！请重新运行程序。")
-                sys.exit(0)
+                    print(f"  git pull 失败: {result.stderr}")
             except Exception as e:
-                print(f"自动更新失败: {e}")
-                print(f"请手动访问 {release_url} 下载最新版本")
-    except Exception as e:
+                print(f"  git pull 失败: {e}")
+
+        if updated:
+            print("更新成功！请重新运行程序。")
+            sys.exit(0)
+        else:
+            print(f"自动更新失败，请手动访问 {release_url} 下载最新版本")
+    except Exception:
         # 更新检查失败不应影响正常使用
         pass
 
