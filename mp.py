@@ -29,7 +29,7 @@ import unicodedata
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 
-__version__ = "2.11.3"
+__version__ = "2.11.4"
 
 
 def _display_width(s: str) -> int:
@@ -2115,8 +2115,36 @@ class OnlineLyricsFetcher:
 
     @staticmethod
     def _has_timeline(lrc: str) -> bool:
-        """判断 LRC 文本是否包含时间轴标签"""
-        return bool(lrc and re.search(r"\[\d{2}:\d{2}", lrc))
+        """判断 LRC 文本是否包含有效时间轴标签
+
+        过滤以下无效歌词：
+        - 空文本
+        - 无时间轴的纯文本
+        - 纯音乐/无歌词占位（"此歌曲为没有填词的纯音乐"等）
+        - 歌词行数过少（< 3 行有效歌词，通常是占位）
+        """
+        if not lrc:
+            return False
+        # 纯音乐/无歌词占位文本检测
+        instrumental_markers = (
+            "此歌曲为没有填词的纯音乐",
+            "纯音乐，请欣赏",
+            "暂无歌词",
+            "无歌词",
+            "instrumental",
+            "no lyrics",
+        )
+        lrc_lower = lrc.lower()
+        for marker in instrumental_markers:
+            if marker.lower() in lrc_lower:
+                return False
+        # 必须含时间轴
+        if not re.search(r"\[\d{1,3}:\d{1,2}", lrc):
+            return False
+        # 统计有效歌词行数（有时间轴且非空文本）
+        lines = re.findall(r"\[\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?\](.+)", lrc)
+        valid_lines = [l for l in (s.strip() for s in lines) if l]
+        return len(valid_lines) >= 3
 
     @staticmethod
     def _normalize_filename(stem: str) -> str:
@@ -2171,10 +2199,53 @@ class OnlineLyricsFetcher:
         data = json.loads(text)
         return data.get("lrc", {}).get("lyric", "") or ""
 
+    def _kugou_search(self, keyword: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """酷狗音乐搜索（先搜歌，再取 hash）
+
+        酷狗搜索接口返回歌曲 hash，用于后续获取歌词。
+        """
+        url = (f"http://mobilecdn.kugou.com/api/v3/search/song"
+               f"?keyword={urllib.parse.quote(keyword)}&pagesize={limit}&page=1")
+        text = self._http_get(url)
+        data = json.loads(text)
+        return data.get("data", {}).get("info", []) or []
+
+    def _kugou_lyric(self, hash_id: str) -> str:
+        """酷狗获取歌词
+
+        步骤：先通过 hash 查歌词信息，再下载歌词内容。
+        """
+        # 步骤1：查歌词信息
+        url = (f"http://krcs.kugou.com/search"
+               f"?ver=1&man=yes&client=mobi&hash={hash_id}&duration=0&album_audio_id=0")
+        text = self._http_get(url)
+        data = json.loads(text)
+        candidates = data.get("candidates", []) or []
+        if not candidates:
+            return ""
+        info = candidates[0]
+        lyric_id = info.get("id", "")
+        accesskey = info.get("accesskey", "")
+        if not lyric_id or not accesskey:
+            return ""
+        # 步骤2：下载歌词
+        url = (f"http://lyrics.kugou.com/download"
+               f"?ver=1&client=pc&id={lyric_id}&accesskey={accesskey}"
+               f"&fmt=lrc&charset=utf8")
+        text = self._http_get(url)
+        data = json.loads(text)
+        # content 字段是 base64 编码的歌词
+        import base64
+        content = data.get("content", "") or ""
+        if not content:
+            return ""
+        return base64.b64decode(content).decode("utf-8", errors="replace")
+
     def _collect_candidates(self, keyword: str) -> List[Tuple[str, str, str, str]]:
-        """聚合两源搜索结果作为候选
+        """聚合三源搜索结果作为候选
 
         返回: [(song_name, artist, source, id_or_mid), ...]
+        源：QQ音乐 → 网易云 → 酷狗
         """
         candidates: List[Tuple[str, str, str, str]] = []
         # QQ音乐候选
@@ -2197,6 +2268,16 @@ class OnlineLyricsFetcher:
                     candidates.append((name, artists, "netease", str(sid)))
         except Exception:
             pass
+        # 酷狗候选（去重）
+        try:
+            for s in self._kugou_search(keyword):
+                name = s.get("songname", "") or ""
+                artists = s.get("singername", "") or ""
+                hash_id = s.get("hash", "") or ""
+                if name and hash_id and not any(c[0] == name and c[1] == artists for c in candidates):
+                    candidates.append((name, artists, "kugou", hash_id))
+        except Exception:
+            pass
         return candidates
 
     def _fetch_lyric_by_candidate(self, candidate: Tuple[str, str, str, str]) -> str:
@@ -2205,8 +2286,10 @@ class OnlineLyricsFetcher:
         try:
             if source == "qq":
                 return self._qq_lyric(ident)
-            else:
+            elif source == "netease":
                 return self._netease_lyric(int(ident))
+            elif source == "kugou":
+                return self._kugou_lyric(ident)
         except Exception:
             return ""
 
@@ -2220,6 +2303,10 @@ class OnlineLyricsFetcher:
         - 歌手在关键词中出现：+30
         - 关键词每个分词在歌名中出现：+10
         - 歌名为空或明显是伴奏/翻唱标识：-20
+
+        注意：当关键词不含歌手名（纯歌名回退场景）时，
+        歌名完全匹配会因 +100 导致多个候选并列最高分，
+        此时由 search_first 的稳定排序保留搜索原顺序（热门优先）。
         """
         name, artist, _, _ = candidate
         kw = keyword.strip().lower()
@@ -2228,7 +2315,8 @@ class OnlineLyricsFetcher:
 
         # 伴奏/纯音乐/翻唱标识降权
         bad_markers = ('伴奏', '纯音乐', 'cover', '翻唱', 'inst.', 'instrumental',
-                       'remix', 'dj版', 'live', '现场', 'karaoke', '卡拉ok')
+                       'remix', 'dj版', 'live', '现场', 'karaoke', '卡拉ok',
+                       '3d', '高燃', '降调', '节目', '氛围', '慢摇')
         if any(m in name_l or m in artist_l for m in bad_markers):
             return -20
 
@@ -2280,11 +2368,30 @@ class OnlineLyricsFetcher:
         ordered = positive if positive else [c for c, _ in scored]
         ordered.sort(key=lambda c: self._score_candidate(keyword, c), reverse=True)
 
-        # 逐个候选尝试，取首个带时间轴的
+        # 逐个候选尝试，收集所有有效歌词，最终选歌词行数最多的
+        # 避免选到只有几行的占位歌词（如纯音乐标识、间奏等）
+        best_lrc = None
+        best_source = None
+        best_lines = 0
         for cand in ordered:
             lrc = self._fetch_lyric_by_candidate(cand)
-            if self._has_timeline(lrc):
-                return "ok", lrc, cand[2]
+            if not self._has_timeline(lrc):
+                continue
+            # 统计有效歌词行数
+            lines = re.findall(r"\[\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?\](.+)", lrc)
+            valid = [l for l in (s.strip() for s in lines) if l]
+            n = len(valid)
+            # 首个有效候选先记录
+            if best_lrc is None:
+                best_lrc, best_source, best_lines = lrc, cand[2], n
+            elif n > best_lines:
+                best_lrc, best_source, best_lines = lrc, cand[2], n
+            # 如果已找到行数充足的（>= 15 行），不再继续尝试，减少网络请求
+            if best_lines >= 15:
+                break
+
+        if best_lrc:
+            return "ok", best_lrc, best_source
 
         return "no_timeline", None, None
 
@@ -2697,7 +2804,7 @@ class AudioPlayer:
 
             print(f"\n  找到 {len(candidates)} 首候选:")
             for i, (name, artist, source, _) in enumerate(candidates):
-                src_label = "QQ音乐" if source == "qq" else "网易云"
+                src_label = {"qq": "QQ音乐", "netease": "网易云", "kugou": "酷狗"}.get(source, source)
                 print(f"  [{i + 1}] {name} - {artist or '未知'}  ({src_label})")
             print("  [0] 取消")
 
@@ -2897,6 +3004,8 @@ class AudioPlayer:
                 status_parts.append("📝 歌词(QQ)")
             elif self.lyrics.online_source == "netease":
                 status_parts.append("📝 歌词(网易)")
+            elif self.lyrics.online_source == "kugou":
+                status_parts.append("📝 歌词(酷狗)")
             else:
                 status_parts.append("📝 歌词")
 
@@ -6966,7 +7075,7 @@ def show_help():
     b                   保存当前播放位置为书签
     r                   从书签恢复播放
     o                   切换歌词显示（本地.lrc或在线搜索缓存）
-    N                   在线搜索歌词（QQ音乐+网易云聚合，手动选择候选）
+    N                   在线搜索歌词（QQ音乐+网易云+酷狗聚合，手动选择候选）
     f                   收藏/取消收藏当前歌曲
     a                   设置AB循环（按两次设置A点和B点）
     t                   设置定时停止（睡眠定时器）
@@ -6992,7 +7101,7 @@ def show_help():
     • 历史保存在 ~/.config/mp/history.json
     • 媒体库索引保存在 ~/.config/mp/library.json
     • 歌词文件需与音频文件同名（.lrc格式）
-    • 在线歌词：本地无.lrc时自动搜索（QQ音乐+网易云聚合），按 N 手动搜索
+    • 在线歌词：本地无.lrc时自动搜索（QQ音乐+网易云+酷狗聚合），按 N 手动搜索
     • 搜索关键词优先使用元数据(title+artist)，无元数据时回退清洗后的文件名
     • 在线歌词成功后自动缓存为同名.lrc，下次播放直接读取本地
     • 录制/转换/截图/归一化/GIF等工具命令无需播放即可独立使用
