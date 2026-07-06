@@ -25,10 +25,53 @@ import tempfile
 import urllib.request
 import urllib.error
 import urllib.parse
+import unicodedata
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 
-__version__ = "2.11.1"
+__version__ = "2.11.2"
+
+
+def _display_width(s: str) -> int:
+    """计算字符串在终端中的实际显示宽度
+
+    emoji 和宽字符（中日韩全角）算 2 列，ASCII 算 1 列。
+    用于解决含 emoji 的状态行被 [:term_width] 按字符数截断后，
+    实际显示宽度仍超过终端宽度导致自动换行的问题。
+    """
+    width = 0
+    for ch in s:
+        code = ord(ch)
+        if code < 0x80:
+            width += 1
+        elif code < 0x3000:
+            # 拉丁扩展、组合字符等按 1 处理（近似）
+            w = unicodedata.east_asian_width(ch)
+            width += 2 if w in ('W', 'F') else 1
+        else:
+            # CJK 区段、emoji 等按 2 列处理
+            width += 2
+    return width
+
+
+def _truncate_to_width(s: str, max_width: int) -> str:
+    """按显示宽度截断字符串，保证截断后实际显示宽度 <= max_width"""
+    width = 0
+    result = []
+    for ch in s:
+        code = ord(ch)
+        if code < 0x80:
+            ch_w = 1
+        elif code < 0x3000:
+            w = unicodedata.east_asian_width(ch)
+            ch_w = 2 if w in ('W', 'F') else 1
+        else:
+            ch_w = 2
+        if width + ch_w > max_width:
+            break
+        result.append(ch)
+        width += ch_w
+    return ''.join(result)
 
 # 配置文件路径
 CONFIG_DIR = Path.home() / '.config' / 'mp'
@@ -2746,7 +2789,7 @@ class AudioPlayer:
         
         # 播放速度
         if self.playback_speed != 1.0:
-            status_parts.append(f"⚡ {self.playback_speed}x")
+            status_parts.append(f"⚡ {self.playback_speed:.1f}x")
         
         # 循环模式
         if self.loop_mode == 'single':
@@ -2803,46 +2846,59 @@ class AudioPlayer:
         except:
             term_width = 80
 
-        # 收集本次要输出的所有行（截断到终端宽度，避免自动换行导致行数错乱）
-        lines = []
-        line1 = f"{status} |{bar}| {current_time}/{total_time}"
-        lines.append(line1[:term_width])
+        # 动态调整 bar 长度，保证整行显示宽度不超过 term_width
+        # 避免 emoji 占 2 列但 len() 算 1 导致截断后实际宽度仍超限而自动换行
+        prefix = f"{status} |"
+        suffix = f"| {current_time}/{total_time}"
+        prefix_w = _display_width(prefix)
+        suffix_w = _display_width(suffix)
+        # bar 可用显示宽度，至少留 10 列给进度条
+        available_for_bar = term_width - prefix_w - suffix_w
+        bar_length = max(10, min(50, available_for_bar))
+        percent = self.current_position / self.total_duration if self.total_duration > 0 else 0
+        filled = int(bar_length * percent)
+        bar = '█' * filled + '─' * (bar_length - filled)
+        line1 = f"{prefix}{bar}{suffix}"
+
+        # 收集本次要输出的所有行（按显示宽度截断，避免自动换行导致行数错乱）
+        lines = [_truncate_to_width(line1, term_width)]
 
         # 可视化器频谱
         if self.visualizer_enabled:
             viz_lines = self.visualizer.render().split('\n')
             for line in viz_lines[-4:]:  # 只显示最后4行
-                lines.append(("  " + line)[:term_width])
+                lines.append(_truncate_to_width("  " + line, term_width))
 
         # 歌词当前行：加粗 + 青色，居中显示
         if self.lyrics.enabled and self.lyrics.lyrics:
             current_time_sec = self.current_position / 1000
             current_lyric, _ = self.lyrics.get_lyrics_at_time(current_time_sec)
             if current_lyric:
-                # 去除 ANSI 长度后再计算 padding
-                visible_len = len(current_lyric)
-                padding = max(0, (term_width - visible_len) // 2)
+                # 按显示宽度计算居中 padding
+                lyric_w = _display_width(current_lyric)
+                padding = max(0, (term_width - lyric_w) // 2)
                 # \033[1;36m = 加粗青色，\033[0m 重置
-                lyric_line = f"{' ' * padding}\033[1;36m{current_lyric}\033[0m"
-                lines.append(lyric_line[:term_width + 9])  # +9 容纳 ANSI 码
+                lines.append(' ' * padding + f"\033[1;36m{current_lyric}\033[0m")
 
         # 清除上次输出的所有行（避免终端残留）
+        # 关键：必须确保每行实际显示宽度 <= term_width，否则自动换行会让行数对不上
         n = self._last_display_lines
         if n > 0:
             # 光标上移到上次输出的第一行
             if n > 1:
                 sys.stdout.write(f"\033[{n - 1}A")
-            # 逐行清除并下移
+            # 逐行清除：回行首 + 清除整行
             for i in range(n):
-                sys.stdout.write("\r\033[2K")  # 回行首 + 清除整行
+                sys.stdout.write("\r\033[2K")
                 if i < n - 1:
-                    sys.stdout.write("\033[1B")  # 下移一行
+                    sys.stdout.write("\033[1B")  # 下移一行（最后一行不下移）
 
-        # 输出新内容（行间用 \n 分隔，最后一行不换行，光标停在末尾）
+        # 输出新内容：每行末尾用 \033[K 清除行尾后换行，避免上一行长字符残留
         for i, line in enumerate(lines):
             sys.stdout.write(line)
             if i < len(lines) - 1:
-                sys.stdout.write("\n")
+                sys.stdout.write("\033[K\n")  # 清除行尾 + 换行
+        sys.stdout.write("\033[K")  # 最后一行清除行尾，不换行（光标停在末尾）
         sys.stdout.flush()
 
         # 记录本次行数，供下次清除
