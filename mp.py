@@ -29,7 +29,7 @@ import unicodedata
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 
-__version__ = "2.11.8"
+__version__ = "2.11.9"
 
 
 def _display_width(s: str) -> int:
