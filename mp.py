@@ -8506,9 +8506,7 @@ def main():
             sys.exit(0 if fail_count == 0 else 1)
 
     if not args.files:
-        print("错误: 请指定要播放的媒体文件")
-        print("使用 'mp --help' 查看使用方法")
-        sys.exit(1)
+        args.files = ['.']
     
     # 加载配置
     config = Config()
