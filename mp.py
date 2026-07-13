@@ -104,36 +104,41 @@ def install_system_dependencies():
 
 
 def check_and_install_dependencies():
-    """检查并安装Python依赖"""
+    """检查并安装系统依赖（ffmpeg）。
+
+    注意：pygame 的安装检查已移至 AudioPlayer.__init__，避免 --eq-list / --stats
+    等纯查询/转换子命令在无需播放时也触发 pygame 安装。
+    """
     if sys.version_info < (3, 7):
         print("错误: 需要Python 3.7或更高版本")
         sys.exit(1)
-    
-    required_packages = ['pygame']
-    missing = []
-    
-    for package in required_packages:
-        try:
-            __import__(package)
-        except ImportError:
-            missing.append(package)
-    
-    if missing:
-        print(f"正在安装缺失的依赖: {', '.join(missing)}")
-        install_system_dependencies()
-        
-        pip_args = get_pip_install_args()
-        cmd = [sys.executable, '-m', 'pip', 'install'] + pip_args + missing
-        
-        try:
-            subprocess.check_call(cmd)
-            print("依赖安装完成！")
-        except subprocess.CalledProcessError:
-            print("依赖安装失败，请手动安装：")
-            print(f"  pip install {' '.join(pip_args)} {' '.join(missing)}")
-            sys.exit(1)
-    
+
     check_ffmpeg()
+
+
+def ensure_pygame():
+    """确保 pygame 已安装并完成 mixer 初始化。
+
+    仅在真正需要播放音频时（AudioPlayer 初始化）调用。
+    若 pygame 缺失，会尝试自动安装；安装失败则抛出 ImportError。
+    """
+    import importlib.util
+    if importlib.util.find_spec('pygame') is not None:
+        return
+
+    print("正在安装缺失的依赖: pygame")
+    install_system_dependencies()
+
+    pip_args = get_pip_install_args()
+    cmd = [sys.executable, '-m', 'pip', 'install'] + pip_args + ['pygame']
+
+    try:
+        subprocess.check_call(cmd)
+        print("依赖安装完成！")
+    except subprocess.CalledProcessError:
+        print("依赖安装失败，请手动安装：")
+        print(f"  pip install {' '.join(pip_args)} pygame")
+        raise ImportError("pygame 安装失败，无法播放音频")
 
 
 def check_ffmpeg():
@@ -213,7 +218,27 @@ class Config:
 
 class MediaInfo:
     """媒体信息类"""
-    
+
+    @staticmethod
+    def _safe_float(val, default=0.0) -> float:
+        """安全转 float，处理 'N/A' / None / 空字符串"""
+        try:
+            if val is None or val == 'N/A' or val == '':
+                return default
+            return float(val)
+        except (ValueError, TypeError):
+            return default
+
+    @staticmethod
+    def _safe_int(val, default=0) -> int:
+        """安全转 int，处理 'N/A' / None / 空字符串"""
+        try:
+            if val is None or val == 'N/A' or val == '':
+                return default
+            return int(val)
+        except (ValueError, TypeError):
+            return default
+
     @staticmethod
     def get_info(file_path: Path) -> Dict[str, Any]:
         """获取媒体文件的详细信息"""
@@ -234,11 +259,11 @@ class MediaInfo:
             'artist': '',
             'album': '',
         }
-        
+
         try:
             # 获取文件大小
             info['size'] = file_path.stat().st_size
-            
+
             # 使用 ffprobe 获取详细信息
             cmd = [
                 'ffprobe', '-v', 'quiet',
@@ -247,45 +272,48 @@ class MediaInfo:
                 str(file_path)
             ]
             result = subprocess.run(cmd, capture_output=True, text=True)
-            
+
             if result.returncode == 0:
                 data = json.loads(result.stdout)
-                
+
                 # 格式信息
                 if 'format' in data:
                     fmt = data['format']
-                    info['duration'] = float(fmt.get('duration', 0))
-                    info['bit_rate'] = int(fmt.get('bit_rate', 0))
-                    
+                    info['duration'] = MediaInfo._safe_float(fmt.get('duration', 0))
+                    info['bit_rate'] = MediaInfo._safe_int(fmt.get('bit_rate', 0))
+
                     # 标签信息
                     tags = fmt.get('tags', {})
-                    info['title'] = tags.get('title', '')
-                    info['artist'] = tags.get('artist', tags.get('ARTIST', ''))
-                    info['album'] = tags.get('album', tags.get('ALBUM', ''))
-                
+                    info['title'] = tags.get('title', '') or ''
+                    info['artist'] = tags.get('artist', tags.get('ARTIST', '')) or ''
+                    info['album'] = tags.get('album', tags.get('ALBUM', '')) or ''
+
                 # 流信息
                 for stream in data.get('streams', []):
                     codec_type = stream.get('codec_type', '')
-                    
+
                     if codec_type == 'audio' and info['channels'] == 0:
-                        info['codec'] = stream.get('codec_name', '')
-                        info['sample_rate'] = int(stream.get('sample_rate', 0))
-                        info['channels'] = stream.get('channels', 0)
-                    
+                        info['codec'] = stream.get('codec_name', '') or ''
+                        info['sample_rate'] = MediaInfo._safe_int(stream.get('sample_rate', 0))
+                        info['channels'] = MediaInfo._safe_int(stream.get('channels', 0))
+
                     elif codec_type == 'video' and info['width'] == 0:
-                        info['width'] = stream.get('width', 0)
-                        info['height'] = stream.get('height', 0)
-                        
+                        info['width'] = MediaInfo._safe_int(stream.get('width', 0))
+                        info['height'] = MediaInfo._safe_int(stream.get('height', 0))
+
                         # 获取帧率
                         fps_str = stream.get('r_frame_rate', '0/1')
                         if '/' in fps_str:
-                            num, den = fps_str.split('/')
-                            if int(den) > 0:
-                                info['fps'] = float(num) / float(den)
-        
+                            parts = fps_str.split('/')
+                            if len(parts) == 2:
+                                num, den = parts
+                                den_i = MediaInfo._safe_int(den, 1)
+                                if den_i > 0:
+                                    info['fps'] = MediaInfo._safe_float(num) / den_i
+
         except Exception:
             pass
-        
+
         return info
     
     @staticmethod
@@ -1172,7 +1200,8 @@ class FileBrowser:
         except PermissionError:
             pass
         self.entries = dirs + files
-        self.cursor = min(self.cursor, max(0, len(self.entries) - 1))
+        # cursor 上限应为总条目数 - 1（含 ".." 父目录条目），避免光标越界
+        self.cursor = min(self.cursor, max(0, self._total_items() - 1))
 
     def _get_display_height(self) -> int:
         try:
@@ -1187,6 +1216,24 @@ class FileBrowser:
     def _total_items(self) -> int:
         """总条目数（包括..）"""
         return len(self.entries) + (1 if self._has_parent_entry() else 0)
+
+    def _entry_index_at_cursor(self) -> int:
+        """将当前 cursor 转换为 self.entries 的索引。
+        当 cursor 指向 ".." 条目或越界时返回 -1。"""
+        if self._has_parent_entry():
+            idx = self.cursor - 1
+        else:
+            idx = self.cursor
+        if 0 <= idx < len(self.entries):
+            return idx
+        return -1
+
+    def _get_entry_at_cursor(self):
+        """返回当前光标处的条目（Path），若指向 ".." 或越界返回 None。"""
+        idx = self._entry_index_at_cursor()
+        if idx >= 0:
+            return self.entries[idx]
+        return None
 
     def _render(self):
         """渲染文件浏览器界面"""
@@ -1292,33 +1339,36 @@ class FileBrowser:
                     ch = sys.stdin.read(1)
 
                     if ch == '\x1b':
-                        ch2 = sys.stdin.read(1)
-                        if ch2 == '[':
-                            ch3 = sys.stdin.read(1)
-                            if ch3 == 'A':  # Up
-                                self.cursor = max(0, self.cursor - 1)
-                            elif ch3 == 'B':  # Down
-                                self.cursor = min(self._total_items() - 1, self.cursor + 1)
+                        # 短超时读取后续字符，避免 ESC 单键导致阻塞
+                        if select.select([sys.stdin], [], [], 0.05)[0]:
+                            ch2 = sys.stdin.read(1)
+                            if ch2 == '[':
+                                if select.select([sys.stdin], [], [], 0.05)[0]:
+                                    ch3 = sys.stdin.read(1)
+                                    if ch3 == 'A':  # Up
+                                        self.cursor = max(0, self.cursor - 1)
+                                    elif ch3 == 'B':  # Down
+                                        self.cursor = min(max(0, self._total_items() - 1), self.cursor + 1)
                     elif ch == '\n' or ch == '\r':  # Enter
-                        if self.cursor == 0 and self.current_dir.parent != self.current_dir:
+                        if self.cursor == 0 and self._has_parent_entry():
                             self.current_dir = self.current_dir.parent
                             self.cursor = 0
                             self.scroll_offset = 0
                             self.refresh_entries()
-                        elif self.cursor < len(self.entries):
-                            entry = self.entries[self.cursor]
-                            if entry.is_dir():
-                                self.current_dir = entry
-                                self.cursor = 0
-                                self.scroll_offset = 0
-                                self.refresh_entries()
-                            else:
-                                self.toggle_select(entry)
+                        else:
+                            entry = self._get_entry_at_cursor()
+                            if entry is not None:
+                                if entry.is_dir():
+                                    self.current_dir = entry
+                                    self.cursor = 0
+                                    self.scroll_offset = 0
+                                    self.refresh_entries()
+                                else:
+                                    self.toggle_select(entry)
                     elif ch == ' ':  # Space - toggle select
-                        if self.cursor < len(self.entries):
-                            entry = self.entries[self.cursor]
-                            if entry.is_file():
-                                self.toggle_select(entry)
+                        entry = self._get_entry_at_cursor()
+                        if entry is not None and entry.is_file():
+                            self.toggle_select(entry)
                     elif ch == 'a':  # Select all
                         self.select_all()
                     elif ch == 'c':  # Clear selection
@@ -1326,9 +1376,12 @@ class FileBrowser:
                     elif ch == 'p':  # Play selected
                         if self.selected:
                             break
-                        elif self.cursor < len(self.entries) and self.entries[self.cursor].is_file():
-                            self.selected.append(self.entries[self.cursor])
-                            break
+                        else:
+                            entry = self._get_entry_at_cursor()
+                            if entry is not None and entry.is_file():
+                                if entry not in self.selected:
+                                    self.selected.append(entry)
+                                break
                     elif ch in ('q', 'Q', '\x03'):
                         self.selected.clear()
                         break
@@ -1354,27 +1407,27 @@ class FileBrowser:
                     if key2 == b'H':  # Up
                         self.cursor = max(0, self.cursor - 1)
                     elif key2 == b'P':  # Down
-                        self.cursor = min(self._total_items() - 1, self.cursor + 1)
+                        self.cursor = min(max(0, self._total_items() - 1), self.cursor + 1)
                 elif key in (b'\r', b'\n'):  # Enter
-                    if self.cursor == 0 and self.current_dir.parent != self.current_dir:
+                    if self.cursor == 0 and self._has_parent_entry():
                         self.current_dir = self.current_dir.parent
                         self.cursor = 0
                         self.scroll_offset = 0
                         self.refresh_entries()
-                    elif self.cursor < len(self.entries):
-                        entry = self.entries[self.cursor]
-                        if entry.is_dir():
-                            self.current_dir = entry
-                            self.cursor = 0
-                            self.scroll_offset = 0
-                            self.refresh_entries()
-                        else:
-                            self.toggle_select(entry)
+                    else:
+                        entry = self._get_entry_at_cursor()
+                        if entry is not None:
+                            if entry.is_dir():
+                                self.current_dir = entry
+                                self.cursor = 0
+                                self.scroll_offset = 0
+                                self.refresh_entries()
+                            else:
+                                self.toggle_select(entry)
                 elif key == b' ':
-                    if self.cursor < len(self.entries):
-                        entry = self.entries[self.cursor]
-                        if entry.is_file():
-                            self.toggle_select(entry)
+                    entry = self._get_entry_at_cursor()
+                    if entry is not None and entry.is_file():
+                        self.toggle_select(entry)
                 elif key == b'a':
                     self.select_all()
                 elif key == b'c':
@@ -1382,9 +1435,12 @@ class FileBrowser:
                 elif key == b'p':
                     if self.selected:
                         break
-                    elif self.cursor < len(self.entries) and self.entries[self.cursor].is_file():
-                        self.selected.append(self.entries[self.cursor])
-                        break
+                    else:
+                        entry = self._get_entry_at_cursor()
+                        if entry is not None and entry.is_file():
+                            if entry not in self.selected:
+                                self.selected.append(entry)
+                            break
                 elif key in (b'q', b'Q'):
                     self.selected.clear()
                     break
@@ -1425,42 +1481,37 @@ class NoiseGenerator:
         self.is_playing = False
 
     def _generate_noise_cmd(self) -> List[str]:
-        """生成 ffmpeg 噪声命令"""
+        """生成 ffmpeg 噪声命令（不指定输出格式，由 play() 统一追加 s16le 输出）"""
         if self.noise_type == 'white':
             return [
                 'ffmpeg', '-f', 'lavfi', '-i',
-                f'anoisesrc=color=white:amplitude=0.3',
-                '-f', 'wav', '-'
+                'anoisesrc=color=white:amplitude=0.3',
             ]
         elif self.noise_type == 'pink':
             return [
                 'ffmpeg', '-f', 'lavfi', '-i',
-                f'anoisesrc=color=pink:amplitude=0.3',
-                '-f', 'wav', '-'
+                'anoisesrc=color=pink:amplitude=0.3',
             ]
         elif self.noise_type == 'brown':
             return [
                 'ffmpeg', '-f', 'lavfi', '-i',
-                f'anoisesrc=color=brown:amplitude=0.3',
-                '-f', 'wav', '-'
+                'anoisesrc=color=brown:amplitude=0.3',
             ]
         elif self.noise_type == 'rain':
             # 模拟雨声：白噪声 + 低通滤波
             return [
                 'ffmpeg', '-f', 'lavfi', '-i',
-                f'anoisesrc=color=white:amplitude=0.5',
+                'anoisesrc=color=white:amplitude=0.5',
                 '-af', 'lowpass=f=2000,highpass=f=200,tremolo=f=8:d=0.7',
-                '-f', 'wav', '-'
             ]
         elif self.noise_type == 'ocean':
             # 模拟海浪：棕噪声 + 低频调制
             return [
                 'ffmpeg', '-f', 'lavfi', '-i',
-                f'anoisesrc=color=brown:amplitude=0.4',
+                'anoisesrc=color=brown:amplitude=0.4',
                 '-af', 'lowpass=f=500,tremolo=f=0.15:d=0.8',
-                '-f', 'wav', '-'
             ]
-        return ['ffmpeg', '-f', 'lavfi', '-i', 'anoisesrc=color=white', '-f', 'wav', '-']
+        return ['ffmpeg', '-f', 'lavfi', '-i', 'anoisesrc=color=white']
 
     def play(self):
         """开始播放噪声"""
@@ -1486,12 +1537,21 @@ class NoiseGenerator:
         noise_proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
         )
-        self.process = subprocess.Popen(
-            play_cmd,
-            stdin=noise_proc.stdout,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
+        try:
+            self.process = subprocess.Popen(
+                play_cmd,
+                stdin=noise_proc.stdout,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+        except Exception:
+            # ffplay 启动失败时清理已启动的 ffmpeg 进程，避免泄漏
+            noise_proc.terminate()
+            try:
+                noise_proc.wait(timeout=1)
+            except Exception:
+                noise_proc.kill()
+            raise
         noise_proc.stdout.close()
         self._noise_proc = noise_proc
         self.is_playing = True
@@ -1569,19 +1629,24 @@ class NoiseGenerator:
                         elif ch == '5':
                             self.set_type('ocean')
                         elif ch == '\x1b':
-                            ch2 = sys.stdin.read(1)
-                            if ch2 == '[':
-                                ch3 = sys.stdin.read(1)
-                                if ch3 == 'A':
-                                    self.set_volume(self.volume + 5)
-                                elif ch3 == 'B':
-                                    self.set_volume(self.volume - 5)
+                            # 短超时读取后续字符，避免 ESC 单键导致阻塞
+                            if select.select([sys.stdin], [], [], 0.05)[0]:
+                                ch2 = sys.stdin.read(1)
+                                if ch2 == '[':
+                                    if select.select([sys.stdin], [], [], 0.05)[0]:
+                                        ch3 = sys.stdin.read(1)
+                                        if ch3 == 'A':
+                                            self.set_volume(self.volume + 5)
+                                        elif ch3 == 'B':
+                                            self.set_volume(self.volume - 5)
                     time.sleep(0.1)
 
             finally:
                 termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+                self.stop()
+        else:
+            self.stop()
 
-        self.stop()
         print("\n噪声生成器已停止")
 
 
@@ -1772,7 +1837,6 @@ class PitchControl:
         # 使用 asetrate + aresample 来改变音调
         # 半音到频率比: ratio = 2^(semitones/12)
         ratio = 2 ** (self.semitones / 12.0)
-        sample_rate = int(44100 * ratio)
         return f'asetrate=44100*{ratio:.6f},aresample=44100'
 
     def reset(self):
@@ -1880,8 +1944,10 @@ class LyricsDisplay:
                 seconds = int(tag[1])
                 ms_str = tag[2] if tag[2] else ''
                 if ms_str:
-                    # 毫秒归一化到秒：2位按百分位，3位按千分位
-                    if len(ms_str) == 2:
+                    # 毫秒归一化到秒：1位按十分位，2位按百分位，3位按千分位
+                    if len(ms_str) == 1:
+                        ms = int(ms_str) / 10.0
+                    elif len(ms_str) == 2:
                         ms = int(ms_str) / 100.0
                     elif len(ms_str) == 3:
                         ms = int(ms_str) / 1000.0
@@ -1915,20 +1981,16 @@ class LyricsDisplay:
         return '', ''
 
     def display_current(self, current_time: float, terminal_width: int = 80):
-        """显示当前歌词"""
+        """显示当前歌词（单行，居中）"""
         if not self.enabled or not self.lyrics:
             return
 
-        current, next_line = self.get_lyrics_at_time(current_time)
+        current, _ = self.get_lyrics_at_time(current_time)
 
         if current:
-            # 居中显示当前歌词
-            padding = max(0, (terminal_width - len(current)) // 2)
+            # 居中显示当前歌词；用 _display_width 计算 CJK/emoji 实际显示宽度
+            padding = max(0, (terminal_width - _display_width(current)) // 2)
             print(f"\r{' ' * padding}{current}", end='', flush=True)
-
-        if next_line:
-            next_padding = max(0, (terminal_width - len(next_line)) // 2)
-            print(f"\r{' ' * next_padding}{next_line}", end='', flush=True)
 
     # ===== 在线搜索相关方法 =====
 
@@ -2292,6 +2354,7 @@ class OnlineLyricsFetcher:
                 return self._kugou_lyric(ident)
         except Exception:
             return ""
+        return ""
 
     @staticmethod
     def _score_candidate(keyword: str, candidate: Tuple[str, str, str, str]) -> int:
@@ -2354,7 +2417,7 @@ class OnlineLyricsFetcher:
         self._cached_candidates = []
         try:
             candidates = self._collect_candidates(keyword)
-        except Exception as e:
+        except Exception:
             return "network_error", None, None
         self._cached_candidates = candidates
 
@@ -2690,20 +2753,29 @@ class AudioPlayer:
         self.pitch_control = PitchControl()
         self.crossfade = CrossfadeManager()
         
-        # 导入 pygame（在依赖检查之后已经导入）
+        # 导入 pygame：延迟到真正需要播放时才检查/安装，避免纯查询子命令触发安装
+        ensure_pygame()
         import pygame
-        
-        # 抑制pygame的欢迎信息
+
+        # 抑制pygame的欢迎信息；用 try/finally 保证异常时 stdout 一定恢复
         original_stdout = sys.stdout
-        sys.stdout = open(os.devnull, 'w')
-        pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
-        sys.stdout = original_stdout
-        
+        devnull_fd = open(os.devnull, 'w')
+        sys.stdout = devnull_fd
+        try:
+            pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
+        finally:
+            sys.stdout = original_stdout
+            devnull_fd.close()
+
         self.is_playing = False
         self.is_paused = False
         self.current_position = 0
         self.total_duration = 0.0
         self.process = None
+        # 进度线程/频谱线程的代际计数器：每次启动新线程时递增，
+        # 旧线程检测到代际变化会自动退出，避免多线程同时写 current_position
+        self._progress_generation = 0
+        self._spectrum_generation = 0
         
         # 新增功能
         self.volume = config.get('volume', 100)
@@ -2836,8 +2908,19 @@ class AudioPlayer:
     def play_from_position(self, position_sec):
         """从指定位置开始播放"""
         if self.process and self.process.poll() is None:
+            # 若进程被 SIGSTOP 暂停，先 SIGCONT 唤醒才能处理 SIGTERM
+            try:
+                self.process.send_signal(signal.SIGCONT)
+            except Exception:
+                pass
             self.process.terminate()
             time.sleep(0.1)
+            if self.process.poll() is None:
+                self.process.kill()
+                try:
+                    self.process.wait(timeout=1)
+                except Exception:
+                    pass
         
         cmd = [
             'ffplay',
@@ -2873,28 +2956,32 @@ class AudioPlayer:
             cmd.extend(['-ss', str(position_sec)])
         
         cmd.append(str(self.file_path))
-        
-        devnull = open(os.devnull, 'w')
+
         self.process = subprocess.Popen(
             cmd,
-            stdout=devnull,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             stdin=subprocess.DEVNULL
         )
         
         self.current_position = position_sec * 1000
         self.is_playing = True
         self.is_paused = False
-        
-        self.progress_thread = threading.Thread(target=self.update_progress, daemon=True)
+
+        # 递增代际计数器，使旧进度/频谱线程自动退出
+        self._progress_generation += 1
+        gen = self._progress_generation
+        self.progress_thread = threading.Thread(target=self.update_progress, args=(gen,), daemon=True)
         self.progress_thread.start()
-        
+
         # 如果启用了可视化器，启动频谱捕获线程
         if self.visualizer_enabled:
-            self.spectrum_thread = threading.Thread(target=self.capture_spectrum, daemon=True)
+            self._spectrum_generation += 1
+            sgen = self._spectrum_generation
+            self.spectrum_thread = threading.Thread(target=self.capture_spectrum, args=(sgen,), daemon=True)
             self.spectrum_thread.start()
     
-    def capture_spectrum(self):
+    def capture_spectrum(self, gen: int = 0):
         """捕获音频频谱数据"""
         try:
             # 使用 ffmpeg 提取原始音频数据用于可视化
@@ -2906,35 +2993,46 @@ class AudioPlayer:
                 '-t', '60',  # 每次捕获60秒
                 '-'
             ]
-            
+
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL
             )
-            
+
             while self.is_playing and not self.is_paused:
+                # 代际变化说明已启动新的频谱线程，旧线程退出
+                if gen != self._spectrum_generation:
+                    break
                 data = process.stdout.read(1024 * 10)
                 if not data:
                     break
                 self.visualizer.update(data)
                 time.sleep(0.03)
-            
+
             process.terminate()
+            try:
+                process.stdout.close()
+                process.wait(timeout=2)
+            except Exception:
+                process.kill()
         except Exception:
             pass
-    
-    def update_progress(self):
+
+    def update_progress(self, gen: int = 0):
         """更新播放进度"""
         start_time = time.time()
         start_position = self.current_position
-        
+
         while self.is_playing and not self.is_paused:
+            # 代际变化说明已启动新的进度线程，旧线程退出避免竞态写
+            if gen != self._progress_generation:
+                return
             elapsed = int((time.time() - start_time) * 1000 * self.playback_speed)
             self.current_position = min(start_position + elapsed, self.total_duration)
             self.display_progress()
             time.sleep(0.1)
-            
+
             if self.process and self.process.poll() is not None:
                 self.is_playing = False
                 # 清除最后的进度显示并换行，避免残留
@@ -3163,7 +3261,7 @@ class AudioPlayer:
     def toggle_loop(self):
         """切换循环模式"""
         modes = ['none', 'single', 'all']
-        current_idx = modes.index(self.loop_mode)
+        current_idx = modes.index(self.loop_mode) if self.loop_mode in modes else 0
         self.loop_mode = modes[(current_idx + 1) % len(modes)]
         self.config.set('loop_mode', self.loop_mode)
         self.display_progress()
@@ -3176,6 +3274,11 @@ class AudioPlayer:
 
         self.is_playing = False
         if self.process and self.process.poll() is None:
+            # 若进程被 SIGSTOP 暂停，先 SIGCONT 唤醒才能处理 SIGTERM
+            try:
+                self.process.send_signal(signal.SIGCONT)
+            except Exception:
+                pass
             self.process.terminate()
             time.sleep(0.1)
             if self.process.poll() is None:
@@ -3185,17 +3288,6 @@ class AudioPlayer:
         """交互式设置定时停止"""
         print("\n定时停止: 输入分钟数 (1-180), 0 取消")
         try:
-            # 临时恢复终端
-            import termios
-            import tty
-            fd = sys.stdin.fileno()
-            old_settings = termios.tcgetattr(fd)
-            tty.setcbreak(fd)
-            try:
-                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-            except:
-                pass
-
             user_input = input("分钟数: ").strip()
             try:
                 minutes = int(user_input)
@@ -3303,7 +3395,7 @@ class AudioPlayer:
                         key = msvcrt.getch()
                         if key == b' ':
                             self.pause()
-                        elif key == b'q' or key == b'Q':
+                        elif key == b'q' or key == b'\x03':
                             self.bookmark_manager.set_position(self.file_path, self.current_position / 1000)
                             break
                         elif key == b'i' or key == b'I':
@@ -3433,7 +3525,7 @@ class AudioPlayer:
                                         self.set_volume(5)
                                     elif ch3 == 'B':
                                         self.set_volume(-5)
-                            elif ch in ('q', 'Q', '\x03'):
+                            elif ch in ('q', '\x03'):
                                 self.bookmark_manager.set_position(self.file_path, self.current_position / 1000)
                                 break
                             elif ch in ('i', 'I'):
@@ -3467,7 +3559,12 @@ class AudioPlayer:
                             elif ch in ('a', 'A'):
                                 self._handle_ab_loop()
                             elif ch in ('t', 'T'):
-                                self._set_sleep_timer()
+                                # 临时恢复终端到正常模式，否则 input() 在 raw 模式下回车不提交会卡死
+                                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+                                try:
+                                    self._set_sleep_timer()
+                                finally:
+                                    tty.setraw(fd)
                             elif ch in ('h', 'H'):
                                 self.history_manager.display()
                             elif ch == 'e':
@@ -3482,9 +3579,19 @@ class AudioPlayer:
                             elif ch == 'S':
                                 self.statistics_manager.display()
                             elif ch in ('c', 'C'):
-                                self._convert_audio()
+                                # 临时恢复终端到正常模式以支持 input()
+                                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+                                try:
+                                    self._convert_audio()
+                                finally:
+                                    tty.setraw(fd)
                             elif ch == 'm':
-                                MetadataEditor.run_interactive(self.file_path)
+                                # 临时恢复终端到正常模式以支持 input()
+                                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+                                try:
+                                    MetadataEditor.run_interactive(self.file_path)
+                                finally:
+                                    tty.setraw(fd)
                             elif ch == 'p':
                                 self.pitch_control.adjust(-0.5)
                                 print(f"\n{self.pitch_control.get_status()}")
@@ -3544,12 +3651,17 @@ class AudioPlayer:
         try:
             if platform.system() == "Windows":
                 import msvcrt
-                if msvcrt.kbhit():
-                    key = msvcrt.getch()
-                    if key == b'r' or key == b'R':
-                        self.play_from_position(saved_pos)
-                        print(f"\n已从书签恢复: {self.format_time(saved_pos * 1000)}")
-                        return
+                # 等待最多 2 秒，让用户有机会按 r 键恢复书签
+                deadline = time.time() + 2.0
+                while time.time() < deadline:
+                    if msvcrt.kbhit():
+                        key = msvcrt.getch()
+                        if key in (b'r', b'R'):
+                            self.play_from_position(saved_pos)
+                            print(f"\n已从书签恢复: {self.format_time(saved_pos * 1000)}")
+                            return
+                        break  # 按了其他键，正常开始
+                    time.sleep(0.05)
             else:
                 import select
                 import termios
@@ -3620,12 +3732,14 @@ class VideoPlayer:
                 str(self.file_path)
             ]
             result = subprocess.run(cmd, capture_output=True, text=True)
-            
+
             if result.returncode == 0:
                 lines = result.stdout.strip().split('\n')
                 for line in lines:
                     parts = line.split(',')
-                    if len(parts) >= 4:
+                    # stream 行字段顺序: r_frame_rate, nb_frames, width, height, duration
+                    # format 行字段顺序: duration（仅 1 个字段）
+                    if len(parts) >= 5:
                         # 尝试解析帧率
                         if '/' in parts[0]:
                             num, den = parts[0].split('/')
@@ -3636,20 +3750,24 @@ class VideoPlayer:
                                 self.fps = float(parts[0])
                             except:
                                 pass
-                        
-                        # 解析宽度、高度
+
+                        # 解析宽度、高度（索引 2、3；索引 1 是 nb_frames 通常为 N/A）
                         try:
-                            self.width = int(parts[1])
-                            self.height = int(parts[2])
+                            self.width = int(parts[2])
+                            self.height = int(parts[3])
                         except:
                             pass
-                        
-                        # 解析时长
+
+                        # 解析时长（优先 stream 级 parts[4]）
                         try:
-                            self.duration = float(parts[3])
+                            self.duration = float(parts[4])
                         except:
+                            pass
+                    elif len(parts) == 1:
+                        # format 行只有 duration 一个字段
+                        if self.duration == 0:
                             try:
-                                self.duration = float(parts[4])
+                                self.duration = float(parts[0])
                             except:
                                 pass
                 
@@ -3687,7 +3805,6 @@ class VideoPlayer:
         sys.stdout.write('\033[H')
         
         # 将帧数据转换为灰度图并渲染
-        chars_per_row = width * 3  # RGB
         lines = []
         
         for y in range(height):
@@ -3720,12 +3837,11 @@ class VideoPlayer:
         # 播放速度
         if self.playback_speed != 1.0:
             cmd.extend(['-af', f'atempo={self.playback_speed}'])
-        
-        devnull = open(os.devnull, 'w')
+
         self.audio_process = subprocess.Popen(
             cmd,
-            stdout=devnull,
-            stderr=devnull,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             stdin=subprocess.DEVNULL
         )
     
@@ -3789,23 +3905,25 @@ class VideoPlayer:
         
         try:
             # 设置非阻塞输入
+            fd = None
+            old_settings = None
             if platform.system() != "Windows":
                 import select
                 import termios
                 import tty
-                
+
                 fd = sys.stdin.fileno()
                 old_settings = termios.tcgetattr(fd)
                 tty.setcbreak(fd)
-            
+
             while self.is_playing:
                 start_time = time.time()
-                
+
                 # 读取一帧
                 frame_data = self.ffmpeg_process.stdout.read(frame_size)
                 if len(frame_data) < frame_size:
                     break
-                
+
                 # 检查用户输入
                 if platform.system() == "Windows":
                     import msvcrt
@@ -3829,36 +3947,43 @@ class VideoPlayer:
                             info = MediaInfo.get_info(self.file_path)
                             MediaInfo.display_info(info)
                         elif ch == '\x1b':
-                            ch2 = sys.stdin.read(1)
-                            if ch2 == '[':
-                                ch3 = sys.stdin.read(1)
-                                if ch3 == 'A':
-                                    self._change_volume(5)
-                                elif ch3 == 'B':
-                                    self._change_volume(-5)
-                
+                            # 短超时读取后续字符，避免 ESC 单键导致阻塞
+                            if select.select([sys.stdin], [], [], 0.05)[0]:
+                                ch2 = sys.stdin.read(1)
+                                if ch2 == '[':
+                                    if select.select([sys.stdin], [], [], 0.05)[0]:
+                                        ch3 = sys.stdin.read(1)
+                                        if ch3 == 'A':
+                                            self._change_volume(5)
+                                        elif ch3 == 'B':
+                                            self._change_volume(-5)
+
                 if not self.is_paused:
                     # 渲染帧
                     self._render_frame(frame_data, render_width, render_height)
                     self.current_frame += 1
-                
+
                 # 控制帧率
                 elapsed = time.time() - start_time
                 sleep_time = frame_delay - elapsed
                 if sleep_time > 0:
                     time.sleep(sleep_time)
-            
+
         except Exception as e:
             print(f"\n播放错误: {e}")
         finally:
-            # 恢复终端设置
-            if platform.system() != "Windows":
-                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-            
+            # 恢复终端设置（仅当成功初始化过终端模式时）
+            if fd is not None and old_settings is not None:
+                try:
+                    import termios
+                    termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+                except Exception:
+                    pass
+
             # 恢复光标显示
             sys.stdout.write('\033[?25h\033[2J\033[H')
             sys.stdout.flush()
-            
+
             self.stop()
             print("\n播放结束")
     
@@ -3866,42 +3991,85 @@ class VideoPlayer:
         """切换暂停状态"""
         if self.is_paused:
             self.is_paused = False
+            # 恢复 ffmpeg 视频帧输出
+            if self.ffmpeg_process and self.ffmpeg_process.poll() is None:
+                try:
+                    self.ffmpeg_process.send_signal(signal.SIGCONT)
+                except Exception:
+                    pass
             if self.audio_process and self.audio_process.poll() is not None:
                 # 重新启动音频
                 self._play_audio()
             else:
                 # 继续音频播放
                 if self.audio_process:
-                    self.audio_process.send_signal(signal.SIGCONT)
+                    try:
+                        self.audio_process.send_signal(signal.SIGCONT)
+                    except Exception:
+                        pass
         else:
             self.is_paused = True
+            # 暂停 ffmpeg 视频帧输出，避免暂停期间视频持续前进
+            if self.ffmpeg_process and self.ffmpeg_process.poll() is None:
+                try:
+                    self.ffmpeg_process.send_signal(signal.SIGSTOP)
+                except Exception:
+                    pass
             # 暂停音频
             if self.audio_process and self.audio_process.poll() is None:
-                self.audio_process.send_signal(signal.SIGSTOP)
-    
+                try:
+                    self.audio_process.send_signal(signal.SIGSTOP)
+                except Exception:
+                    pass
+
     def _change_volume(self, delta: int):
         """调整音量"""
         self.volume = max(0, min(100, self.volume + delta))
         self.config.set('volume', self.volume)
-        # 显示音量提示（在终端底部）
+        # 重启音频进程以应用新音量
+        if self.audio_process and self.audio_process.poll() is None:
+            try:
+                self.audio_process.send_signal(signal.SIGCONT)
+            except Exception:
+                pass
+            self.audio_process.terminate()
+            try:
+                self.audio_process.wait(timeout=1)
+            except Exception:
+                self.audio_process.kill()
+        self._play_audio()
         print(f"\n音量: {self.volume}%")
     
     def stop(self):
         """停止播放"""
         self.is_playing = False
-        
+
         if self.ffmpeg_process and self.ffmpeg_process.poll() is None:
+            # 若被 SIGSTOP 暂停，先 SIGCONT 唤醒才能处理 SIGTERM
+            try:
+                self.ffmpeg_process.send_signal(signal.SIGCONT)
+            except Exception:
+                pass
+            # 先关闭 stdout 管道避免阻塞
+            try:
+                self.ffmpeg_process.stdout.close()
+            except Exception:
+                pass
             self.ffmpeg_process.terminate()
             try:
                 self.ffmpeg_process.wait(timeout=1)
-            except:
+            except Exception:
                 self.ffmpeg_process.kill()
-        
+
         if self.audio_process and self.audio_process.poll() is None:
+            try:
+                self.audio_process.send_signal(signal.SIGCONT)
+            except Exception:
+                pass
             self.audio_process.terminate()
             try:
                 self.audio_process.wait(timeout=1)
-            except:
+            except Exception:
                 self.audio_process.kill()
     
     def format_time(self, ms):
@@ -3967,7 +4135,9 @@ class AudioRecorder:
         print(f"{'='*60}\n")
 
         try:
-            subprocess.run(cmd)
+            # 用 Popen 而非 run，以便 Ctrl+C 时能主动终止 ffmpeg 子进程
+            proc = subprocess.Popen(cmd)
+            proc.wait()
             if output_path.exists() and output_path.stat().st_size > 0:
                 print(f"\n✓ 录制完成: {output_path}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -3976,8 +4146,17 @@ class AudioRecorder:
                 print("\n✗ 录制失败：输出文件为空（请检查麦克风设备）")
                 return False
         except KeyboardInterrupt:
+            # 主动终止 ffmpeg，避免麦克风仍被占用
+            try:
+                proc.terminate()
+                proc.wait(timeout=2)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
             print(f"\n停止录制")
-            if output_path.exists():
+            if output_path.exists() and output_path.stat().st_size > 0:
                 print(f"✓ 已保存: {output_path}")
                 return True
             return False
@@ -4338,8 +4517,12 @@ class AudioNormalizer:
                 print(f"  文件大小: {MediaInfo.format_size(tmp.stat().st_size)}")
             return True
         except Exception as e:
-            if tmp.exists() and output_path != file_path:
-                tmp.unlink()
+            # 异常时清理临时文件（包括 .tmp_norm 和不完整的 output_path）
+            if tmp.exists():
+                try:
+                    tmp.unlink()
+                except Exception:
+                    pass
             print(f"✗ 错误: {e}")
             return False
 
@@ -4382,7 +4565,12 @@ class PlaylistIO:
                     title = info.get('title') or fp.stem
                     artist = info.get('artist', '')
                     display = f"{artist} - {title}" if artist else title
-                    duration = int(info.get('duration', -1))
+                    # M3U 规范：未知时长用 -1；duration 为 0/None/无效时也用 -1
+                    try:
+                        dur = float(info.get('duration') or 0)
+                        duration = int(dur) if dur > 0 else -1
+                    except (TypeError, ValueError):
+                        duration = -1
                     f.write(f'#EXTINF:{duration},{display}\n')
                     # 写入绝对路径
                     f.write(str(fp.resolve()) + '\n')
@@ -5027,7 +5215,8 @@ class BPMDetector:
                 print("✗ 音频太短，无法检测")
                 return None
 
-            samples = struct.unpack(f'<{n_samples}h', data)
+            # 截取到精确的字节长度，避免奇数长度时 struct.unpack 报错
+            samples = struct.unpack(f'<{n_samples}h', data[:n_samples * 2])
 
             # 计算能量包络（每 128 样本一个能量值，约 16ms）
             window = 128
@@ -5293,10 +5482,17 @@ class ConfigBackup:
         try:
             with zipfile.ZipFile(input_path, 'r') as zf:
                 # 安全检查：阻止 zip slip 攻击
+                # 用 os.path 比较替代 startswith，避免前缀误匹配（如 mp_evil 目录）
+                # 兼容 Python 3.7（is_relative_to 仅 3.9+ 可用）
                 members = zf.namelist()
+                config_resolved = CONFIG_DIR.resolve()
+                config_str = str(config_resolved)
+                # 确保末尾有分隔符，避免 mp_evil 误匹配 mp
+                config_prefix = config_str if config_str.endswith(os.sep) else config_str + os.sep
                 for m in members:
-                    target = (CONFIG_DIR / m).resolve()
-                    if not str(target).startswith(str(CONFIG_DIR.resolve())):
+                    target = (config_resolved / m).resolve()
+                    target_str = str(target)
+                    if target_str != config_str and not target_str.startswith(config_prefix):
                         print(f"✗ 检测到非法路径: {m}")
                         return False
                 # 确保目录存在
@@ -5379,13 +5575,18 @@ class BatchRenamer:
             except Exception:
                 pass
 
-            new_name = pattern.format(
-                title=BatchRenamer._sanitize(title),
-                artist=BatchRenamer._sanitize(artist),
-                album=BatchRenamer._sanitize(album),
-                year=BatchRenamer._sanitize(year),
-                track=BatchRenamer._sanitize(track),
-            ).strip() or entry.stem
+            try:
+                new_name = pattern.format(
+                    title=BatchRenamer._sanitize(title),
+                    artist=BatchRenamer._sanitize(artist),
+                    album=BatchRenamer._sanitize(album),
+                    year=BatchRenamer._sanitize(year),
+                    track=BatchRenamer._sanitize(track),
+                ).strip() or entry.stem
+            except (KeyError, ValueError, IndexError) as e:
+                print(f"  ✗ 模式格式错误 ({e}): {entry.name}")
+                skipped += 1
+                continue
 
             # 限制文件名长度
             if len(new_name) > 200:
@@ -6472,7 +6673,9 @@ class AudioMixMixer:
 
         n = len(input_files)
         # amix: inputs=N, duration=longest, dropout_transition=0
-        amix_filter = f"[0:a][1:a]amix=inputs={n}:duration=longest:dropout_transition=0[aout]"
+        # 为每个输入文件构造 [i:a] 输入 pad，避免 3+ 文件时 pad 数量不匹配
+        input_pads = ''.join(f"[{i}:a]" for i in range(n))
+        amix_filter = f"{input_pads}amix=inputs={n}:duration=longest:dropout_transition=0[aout]"
         cmd = ['ffmpeg', '-y', '-loglevel', 'warning']
         for f in input_files:
             cmd += ['-i', str(f)]
@@ -6841,15 +7044,29 @@ class SegmentRepeater:
             print(f"✗ 结束时间 {end}s 超出文件时长 {duration:.2f}s")
             return False
 
-        if output_path is None:
-            output_path = file_path.with_name(
-                f"{file_path.stem}_repeat_{int(start)}s-{int(end)}s x{times}{file_path.suffix}")
+        video_exts = {'.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v'}
+        # 视频文件：本功能仅处理音频流，视频画面会被丢弃。
+        # 强制输出为纯音频文件（m4a），避免产生“有视频扩展名但无视频流”的损坏文件。
+        is_video_input = file_path.suffix.lower() in video_exts
+        if is_video_input:
+            print(f"⚠ 提示: {file_path.name} 是视频文件，片段重复仅处理音频流，视频画面将被丢弃。")
+            if output_path is None:
+                output_path = file_path.with_name(
+                    f"{file_path.stem}_repeat_{int(start)}s-{int(end)}s x{times}.m4a")
+            elif output_path.suffix.lower() in video_exts:
+                # 用户给了视频扩展名，强制改为 m4a
+                output_path = output_path.with_suffix('.m4a')
+                print(f"⚠ 输出扩展名已自动改为 .m4a（避免输出无视频流的视频文件）")
+        else:
+            if output_path is None:
+                output_path = file_path.with_name(
+                    f"{file_path.stem}_repeat_{int(start)}s-{int(end)}s x{times}{file_path.suffix}")
 
         suffix = output_path.suffix.lower()
         codec_args = AudioConverter.SUPPORTED_FORMATS.get(suffix)
-        # 视频文件：使用流复制；音频文件：用对应编码器
-        video_exts = {'.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v'}
-        is_video = suffix in video_exts
+        # .m4a 使用 aac 编码
+        if suffix == '.m4a' and not codec_args:
+            codec_args = ['-c:a', 'aac', '-b:a', '192k']
 
         # 构造 filter_complex：片段A=[start,end]重复times次，片段B=[end,末尾]
         # 用 asplit 将片段复制 N 份，再用 concat 拼接
@@ -6872,10 +7089,7 @@ class SegmentRepeater:
                '-i', str(file_path),
                '-filter_complex', filter_complex,
                '-map', '[aout]']
-        if is_video:
-            # 视频用默认 aac
-            cmd += ['-c:a', 'aac', '-b:a', '192k']
-        elif codec_args:
+        if codec_args:
             cmd += codec_args
         else:
             cmd += ['-c:a', 'aac', '-b:a', '192k']
@@ -7161,8 +7375,7 @@ def play_playlist(playlist: Playlist, config: Config, loop: str = 'none'):
         
         # 设置信号处理
         should_stop = False
-        should_next = False
-        
+
         def signal_handler(sig, frame):
             nonlocal should_stop
             should_stop = True
@@ -7240,19 +7453,31 @@ def _fetch_latest_version_github():
 
 
 def _compare_versions(v1, v2):
-    """比较两个版本号"""
-    parts1 = v1.lstrip('v').split('.')
-    parts2 = v2.lstrip('v').split('.')
-    for i in range(max(len(parts1), len(parts2))):
-        try:
-            a = int(parts1[i]) if i < len(parts1) else 0
-            b = int(parts2[i]) if i < len(parts2) else 0
-            if a > b:
-                return 1
-            if a < b:
-                return -1
-        except ValueError:
-            return 0
+    """比较两个版本号
+
+    支持带前缀(如 v1.2.3)和带后缀(如 1.2.3-beta)的版本号。
+    每个部分取前导数字；无数字部分视为 0。
+    """
+    import re
+
+    def _parse_parts(v):
+        parts = v.lstrip('vV').split('.')
+        result = []
+        for p in parts:
+            m = re.match(r'(\d+)', p.strip())
+            result.append(int(m.group(1)) if m else 0)
+        return result
+
+    parts1 = _parse_parts(v1)
+    parts2 = _parse_parts(v2)
+    max_len = max(len(parts1), len(parts2))
+    for i in range(max_len):
+        a = parts1[i] if i < len(parts1) else 0
+        b = parts2[i] if i < len(parts2) else 0
+        if a > b:
+            return 1
+        if a < b:
+            return -1
     return 0
 
 
@@ -7571,7 +7796,15 @@ def main():
     
     # 加载配置
     config = Config()
-    
+
+    # 应用命令行参数（适用于所有子命令路径：--favorites/--browse/--import-m3u/主播放等）
+    if args.volume is not None:
+        config.set('volume', max(0, min(100, args.volume)))
+    if args.speed is not None:
+        config.set('playback_speed', max(0.5, min(2.0, args.speed)))
+    if args.loop:
+        config.set('loop_mode', args.loop)
+
     # 处理收藏播放
     if args.favorites:
         favorites_manager = FavoritesManager()
@@ -7910,9 +8143,8 @@ def main():
             except ValueError:
                 print(f"错误: 淡出时长无效: {args.fade[2]}")
                 sys.exit(1)
-        # OUT_SEC 也可能来自 --at
-        if fade_out == 0.0 and args.at > 0:
-            fade_out = args.at
+        # 注意：--at 在其他子命令中表示"截图时间点"，不应用于指定淡出时长。
+        # 淡出时长请通过 --fade FILE IN_SEC OUT_SEC 的第三个参数指定。
         FadeEffect.apply_fade(file_path, fade_in, fade_out)
         sys.exit(0)
 
@@ -8428,9 +8660,9 @@ def main():
 
         if len(targets) == 1:
             # 单目标模式：保持原有完整行为
-            _download_one(targets[0], out_override=args.lyrics_output,
+            ok, _info, _lines = _download_one(targets[0], out_override=args.lyrics_output,
                           interactive=args.lyrics_interactive)
-            sys.exit(0)
+            sys.exit(0 if ok else 1)
         else:
             # 批量模式
             print(f"批量下载歌词：共 {len(targets)} 个目标")
