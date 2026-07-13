@@ -22,6 +22,7 @@ import hashlib
 import struct
 import zipfile
 import tempfile
+import base64
 import urllib.request
 import urllib.error
 import urllib.parse
@@ -29,7 +30,7 @@ import unicodedata
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 
-__version__ = "2.11.8"
+__version__ = "2.11.10"
 
 
 def _display_width(s: str) -> int:
@@ -80,6 +81,7 @@ PLAYLIST_DIR = CONFIG_DIR / 'playlists'
 FAVORITES_FILE = CONFIG_DIR / 'favorites.json'
 HISTORY_FILE = CONFIG_DIR / 'history.json'
 RADIO_FILE = CONFIG_DIR / 'radio.json'
+UPDATE_CACHE_FILE = CONFIG_DIR / 'update_cache.json'  # GitHub 版本检查缓存（避免速率限制，bug #14）
 
 
 def get_pip_install_args():
@@ -129,10 +131,11 @@ def check_and_install_dependencies():
             subprocess.check_call(cmd)
             print("依赖安装完成！")
         except subprocess.CalledProcessError:
-            print("依赖安装失败，请手动安装：")
-            print(f"  pip install {' '.join(pip_args)} {' '.join(missing)}")
-            sys.exit(1)
-    
+            # 不立即退出，让不需要 pygame 的命令仍能使用
+            # 真正使用 pygame 时（AudioPlayer 等）会因 ImportError 给出清晰错误
+            print("警告: 依赖安装失败，播放/录音/噪声等功能将不可用")
+            print(f"  如需使用，请手动安装: pip install {' '.join(pip_args)} {' '.join(missing)}")
+
     check_ffmpeg()
 
 
@@ -1878,14 +1881,22 @@ class LyricsDisplay:
             for tag in time_tags:
                 minutes = int(tag[0])
                 seconds = int(tag[1])
+                # 秒数进位归一化（LRC 标准秒数为 0-59，
+                # 但有些文件可能写错如 [01:99.00]，按 60 进位到分钟）
+                if seconds >= 60:
+                    minutes += seconds // 60
+                    seconds = seconds % 60
                 ms_str = tag[2] if tag[2] else ''
                 if ms_str:
-                    # 毫秒归一化到秒：2位按百分位，3位按千分位
-                    if len(ms_str) == 2:
+                    # 毫秒归一化到秒：1位按十分位，2位按百分位，3位按千分位
+                    if len(ms_str) == 1:
+                        ms = int(ms_str) / 10.0
+                    elif len(ms_str) == 2:
                         ms = int(ms_str) / 100.0
                     elif len(ms_str) == 3:
                         ms = int(ms_str) / 1000.0
                     else:
+                        # 兜底：未知位数按百分位处理（罕见格式）
                         ms = int(ms_str) / 100.0
                 else:
                     ms = 0.0
@@ -2178,9 +2189,11 @@ class OnlineLyricsFetcher:
         url = (f"https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg"
                f"?songmid={songmid}&format=json&nobase64=1")
         text = self._http_get(url, extra_headers={"Referer": "https://y.qq.com/"})
-        # QQ音乐可能返回 jsonp 包裹
-        if text.startswith("callback("):
-            text = re.sub(r"^callback\(|\)$", "", text)
+        # QQ音乐可能返回 jsonp 包裹（函数名不固定，如 callback/MusicJsonCallback 等）
+        # 用正则提取最外层括号内的 JSON，兼容各种函数名
+        m = re.match(r"^\s*[\w$]+\s*\((.*)\)\s*$", text, re.DOTALL)
+        if m:
+            text = m.group(1)
         data = json.loads(text)
         return data.get("lyric", "") or ""
 
@@ -2234,8 +2247,7 @@ class OnlineLyricsFetcher:
                f"&fmt=lrc&charset=utf8")
         text = self._http_get(url)
         data = json.loads(text)
-        # content 字段是 base64 编码的歌词
-        import base64
+        # content 字段是 base64 编码的歌词（base64 已在模块顶部导入）
         content = data.get("content", "") or ""
         if not content:
             return ""
@@ -2292,6 +2304,8 @@ class OnlineLyricsFetcher:
                 return self._kugou_lyric(ident)
         except Exception:
             return ""
+        # 未知 source 兜底，避免隐式返回 None 导致下游 _has_timeline(None) 行为不一致
+        return ""
 
     @staticmethod
     def _score_candidate(keyword: str, candidate: Tuple[str, str, str, str]) -> int:
@@ -2314,10 +2328,19 @@ class OnlineLyricsFetcher:
         artist_l = (artist or '').strip().lower()
 
         # 伴奏/纯音乐/翻唱标识降权
-        bad_markers = ('伴奏', '纯音乐', 'cover', '翻唱', 'inst.', 'instrumental',
-                       'remix', 'dj版', 'live', '现场', 'karaoke', '卡拉ok',
-                       '3d', '高燃', '降调', '节目', '氛围', '慢摇')
-        if any(m in name_l or m in artist_l for m in bad_markers):
+        # 中文标识用子串匹配（中文无单词边界概念）
+        zh_markers = ('伴奏', '纯音乐', '翻唱', 'dj版', '现场', '卡拉ok',
+                      '高燃', '降调', '节目', '氛围', '慢摇')
+        if any(m in name_l or m in artist_l for m in zh_markers):
+            return -20
+        # 英文标识用 token 完全匹配，避免子串误伤
+        # （如 'live' 误伤 'alive'/'oliver'，'3d' 误伤 '3dream'）
+        # 将非字母数字字符替换为空格后分词，'inst.' 会变成 token 'inst'
+        name_tokens = set(re.split(r'[^a-z0-9]+', name_l))
+        artist_tokens = set(re.split(r'[^a-z0-9]+', artist_l))
+        all_tokens = name_tokens | artist_tokens
+        en_markers = {'cover', 'inst', 'instrumental', 'remix', 'live', 'karaoke', '3d'}
+        if all_tokens & en_markers:
             return -20
 
         score = 0
@@ -2350,6 +2373,8 @@ class OnlineLyricsFetcher:
 
         匹配策略：对候选按匹配度评分排序后，优先尝试最匹配的候选，
         减少"歌词与歌曲不对应"问题（避免取到翻唱/伴奏版）。
+        在已找到行数充足（>= 15 行）的歌词时提前停止，减少网络请求；
+        否则遍历所有候选，选行数最多的有效歌词。
         """
         self._cached_candidates = []
         try:
@@ -2361,14 +2386,16 @@ class OnlineLyricsFetcher:
         if not candidates:
             return "no_result", None, None
 
-        # 按匹配度排序（稳定排序，保留搜索原顺序作 tiebreak）
+        # 按匹配度评分（仅计算一次，避免重复计算）
         scored = [(c, self._score_candidate(keyword, c)) for c in candidates]
         # 过滤掉明显是伴奏/翻唱的（负分），除非全部都是负分
-        positive = [c for c, s in scored if s >= 0]
-        ordered = positive if positive else [c for c, _ in scored]
-        ordered.sort(key=lambda c: self._score_candidate(keyword, c), reverse=True)
+        positive = [(c, s) for c, s in scored if s >= 0]
+        filtered = positive if positive else scored
+        # 稳定排序：按分数降序，同分保留搜索原顺序（热门优先）作 tiebreak
+        filtered.sort(key=lambda x: x[1], reverse=True)
+        ordered = [c for c, _ in filtered]
 
-        # 逐个候选尝试，收集所有有效歌词，最终选歌词行数最多的
+        # 逐个候选尝试，收集所有有效歌词，选行数最多的
         # 避免选到只有几行的占位歌词（如纯音乐标识、间奏等）
         best_lrc = None
         best_source = None
@@ -2691,8 +2718,13 @@ class AudioPlayer:
         self.crossfade = CrossfadeManager()
         
         # 导入 pygame（在依赖检查之后已经导入）
-        import pygame
-        
+        try:
+            import pygame
+        except ImportError:
+            print("错误: pygame 未安装，音频播放功能不可用")
+            print("请运行: pip install pygame")
+            sys.exit(1)
+
         # 抑制pygame的欢迎信息
         original_stdout = sys.stdout
         sys.stdout = open(os.devnull, 'w')
@@ -2829,8 +2861,9 @@ class AudioPlayer:
                 print(f"  共加载 {len(self.lyrics.lyrics)} 行歌词，按 [o] 切换显示")
             print("=" * 60)
         finally:
-            # 恢复播放状态
-            if not was_paused:
+            # 恢复播放状态：仅当搜索前未暂停，且当前仍处于暂停状态时才恢复
+            # 避免搜索期间状态被其他线程改变导致状态反转
+            if not was_paused and self.is_paused:
                 self.pause()  # 再次切换回播放
     
     def play_from_position(self, position_sec):
@@ -3004,7 +3037,7 @@ class AudioPlayer:
             if self.lyrics.online_source == "qq":
                 status_parts.append("📝 歌词(QQ)")
             elif self.lyrics.online_source == "netease":
-                status_parts.append("📝 歌词(网易)")
+                status_parts.append("📝 歌词(网易云)")
             elif self.lyrics.online_source == "kugou":
                 status_parts.append("📝 歌词(酷狗)")
             else:
@@ -3098,6 +3131,10 @@ class AudioPlayer:
                 sys.stdout.write("\r\033[2K")
                 if i < n - 1:
                     sys.stdout.write("\033[1B")  # 下移一行（最后一行不下移）
+            # 清屏循环结束后光标在第 n 行行首，需上移回第 1 行才能原地刷新
+            # 否则新内容会从第 n 行开始写入，每次刷新内容向下移动 n-1 行
+            if n > 1:
+                sys.stdout.write(f"\033[{n - 1}A")
 
         # 输出新内容：每行末尾用 \033[K 清除行尾后换行，避免上一行长字符残留
         for i, line in enumerate(lines):
@@ -7200,11 +7237,34 @@ def _fetch_latest_version_github():
         tag: 版本号字符串（如 "v2.11.6"），失败为 None
         release_url: Release 页面 URL，失败为 None
         assets: Release Assets 列表 [{name, url, size}, ...]，失败为 []
+
+    为避免 GitHub API 速率限制（未认证 60 次/小时/IP），增加本地缓存（bug #14）：
+    - 缓存有效期 24 小时，缓存文件 ~/.config/mp/update_cache.json
+    - 缓存有效期内直接返回缓存结果，不再请求 API
+    - API 请求失败时（速率限制/网络错误）使用过期缓存兜底，避免完全无返回
     """
     import urllib.request
     import urllib.error
 
-    # 尝试 Releases API（含 assets 下载链接）
+    # --- 缓存读取 ---
+    cache = None
+    try:
+        if UPDATE_CACHE_FILE.exists():
+            with open(UPDATE_CACHE_FILE, 'r', encoding='utf-8') as f:
+                cache = json.load(f)
+    except Exception:
+        cache = None
+
+    CACHE_TTL = 24 * 3600  # 缓存有效期 24 小时
+    now = time.time()
+    if cache and isinstance(cache, dict):
+        ts = cache.get("ts", 0)
+        if now - ts < CACHE_TTL:
+            # 缓存有效期内，直接返回缓存结果，不请求 API
+            return cache.get("tag"), cache.get("release_url"), cache.get("assets", []) or []
+
+    # --- 尝试 Releases API（含 assets 下载链接）---
+    result = None
     try:
         url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
         req = urllib.request.Request(url, headers={"User-Agent": "mp-player"})
@@ -7220,40 +7280,125 @@ def _fetch_latest_version_github():
                     "size": a.get("size", 0),
                 })
             if tag:
-                return tag, html_url, assets
+                result = (tag, html_url, assets)
     except Exception:
         pass
 
-    # 回退到 Tags API（无 assets 信息）
-    try:
-        url = f"https://api.github.com/repos/{GITHUB_REPO}/tags"
-        req = urllib.request.Request(url, headers={"User-Agent": "mp-player"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode())
-            if data:
-                tag = data[0].get("name")
-                return tag, f"https://github.com/{GITHUB_REPO}/releases/tag/{tag}", []
-    except Exception:
-        pass
+    # --- 回退到 Tags API（无 assets 信息）---
+    if result is None:
+        try:
+            url = f"https://api.github.com/repos/{GITHUB_REPO}/tags"
+            req = urllib.request.Request(url, headers={"User-Agent": "mp-player"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode())
+                if data:
+                    tag = data[0].get("name")
+                    result = (tag, f"https://github.com/{GITHUB_REPO}/releases/tag/{tag}", [])
+        except Exception:
+            pass
+
+    # --- 缓存写入 / 过期缓存兜底 ---
+    if result is not None:
+        # 请求成功，更新缓存
+        try:
+            CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "tag": result[0],
+                "release_url": result[1],
+                "assets": result[2],
+                "ts": now,
+            }
+            with open(UPDATE_CACHE_FILE, 'w', encoding='utf-8') as f:
+                json.dump(payload, f, ensure_ascii=False)
+        except Exception:
+            pass
+        return result
+
+    # 请求失败：用过期缓存兜底（即便过期也比无返回好）
+    if cache and isinstance(cache, dict) and cache.get("tag"):
+        return cache.get("tag"), cache.get("release_url"), cache.get("assets", []) or []
 
     return None, None, []
 
 
 def _compare_versions(v1, v2):
-    """比较两个版本号"""
-    parts1 = v1.lstrip('v').split('.')
-    parts2 = v2.lstrip('v').split('.')
+    """比较两个版本号
+
+    支持前缀 v/V（如 v1.2.3 / V1.2.3），仅去除一个前缀字符。
+    支持预发布标识：每段分离为数字部分和后缀部分，
+    数字不同按数字比较；数字相同时无后缀（正式版）> 有后缀（预发布版）。
+    例如 1.2.3-beta < 1.2.3 < 1.2.4。
+    """
+    def _strip_v(s):
+        # 仅去除一个 v/V 前缀，避免 lstrip('v') 误删多个 v 或忽略大写 V
+        if s and s[0] in ('v', 'V'):
+            return s[1:]
+        return s
+
+    def _parse_part(p):
+        """解析版本段，返回 (数字, 后缀字符串)
+
+        如 '3' -> (3, ''), '3-beta' -> (3, '-beta'), 'rc1' -> (0, 'rc1')
+        """
+        m = re.match(r'^(\d+)(.*)$', p)
+        if m:
+            return int(m.group(1)), m.group(2)
+        return 0, p
+
+    parts1 = _strip_v(v1).split('.')
+    parts2 = _strip_v(v2).split('.')
     for i in range(max(len(parts1), len(parts2))):
-        try:
-            a = int(parts1[i]) if i < len(parts1) else 0
-            b = int(parts2[i]) if i < len(parts2) else 0
-            if a > b:
+        p1 = parts1[i] if i < len(parts1) else '0'
+        p2 = parts2[i] if i < len(parts2) else '0'
+        n1, s1 = _parse_part(p1)
+        n2, s2 = _parse_part(p2)
+        if n1 > n2:
+            return 1
+        if n1 < n2:
+            return -1
+        # 数字相同，比较有后缀的
+        # 无后缀（正式版）> 有后缀（预发布版），如 1.2.3 > 1.2.3-beta
+        if not s1 and s2:
+            return 1
+        if s1 and not s2:
+            return -1
+        if s1 and s2:
+            if s1 > s2:
                 return 1
-            if a < b:
+            if s1 < s2:
                 return -1
-        except ValueError:
-            return 0
     return 0
+
+
+def _safe_replace_py(content, target_path):
+    """安全替换 Python 源文件：先用 py_compile 校验语法完整性，再写回目标路径
+
+    参数:
+        content: 字节串，新文件内容
+        target_path: 目标文件绝对路径
+    返回:
+        True 表示校验通过并已替换；False 表示校验失败，原文件保持不变
+    """
+    import py_compile
+    # 写入临时文件做语法校验，避免损坏的下载内容直接覆盖可用文件
+    with tempfile.NamedTemporaryFile(suffix=".py", delete=False) as tmp:
+        tmp.write(content)
+        tmp_path = tmp.name
+    try:
+        try:
+            py_compile.compile(tmp_path, doraise=True)
+        except py_compile.PyCompileError as e:
+            print(f"  下载的 {os.path.basename(target_path)} 语法校验失败，已放弃更新避免损坏: {e}")
+            return False
+        # 校验通过，原子替换（写回原路径）
+        with open(target_path, 'wb') as dst:
+            dst.write(content)
+        return True
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
 
 def check_for_update():
@@ -7263,6 +7408,9 @@ def check_for_update():
     1. Release Assets 下载 releases zip（最可靠，版本对应，含 mp.py + install.sh）
     2. raw.githubusercontent.com 下载 main 分支 mp.py（回退方案）
     3. git pull（仅当 mp.py 所在目录有 .git 时）
+
+    所有下载内容在替换本地文件前均通过 py_compile 语法校验，
+    避免下载到损坏/不完整的文件覆盖可用版本（bug #17）。
     """
     import urllib.request
     import urllib.error
@@ -7335,19 +7483,24 @@ def check_for_update():
                                     mp_name = n
                                     break
                             if mp_name:
-                                with zf.open(mp_name) as src, open(current_file, 'wb') as dst:
-                                    dst.write(src.read())
-                                # 若 zip 含 install.sh 也一并替换
-                                inst_name = None
-                                for n in names:
-                                    if n.endswith("install.sh"):
-                                        inst_name = n
-                                        break
-                                if inst_name:
-                                    inst_path = os.path.join(script_dir, "install.sh")
-                                    with zf.open(inst_name) as src, open(inst_path, 'wb') as dst:
-                                        dst.write(src.read())
-                                updated = True
+                                # 读取 mp.py 内容并通过 py_compile 校验后再替换，避免损坏文件覆盖原文件（bug #17）
+                                with zf.open(mp_name) as src:
+                                    mp_content = src.read()
+                                if not _safe_replace_py(mp_content, current_file):
+                                    # 校验失败，保留原文件，标记未更新
+                                    updated = False
+                                else:
+                                    # 若 zip 含 install.sh 也一并替换
+                                    inst_name = None
+                                    for n in names:
+                                        if n.endswith("install.sh"):
+                                            inst_name = n
+                                            break
+                                    if inst_name:
+                                        inst_path = os.path.join(script_dir, "install.sh")
+                                        with zf.open(inst_name) as src, open(inst_path, 'wb') as dst:
+                                            dst.write(src.read())
+                                    updated = True
                             else:
                                 print(f"  Assets 中未找到 mp.py")
                     finally:
@@ -7366,9 +7519,10 @@ def check_for_update():
                 req = urllib.request.Request(raw_url, headers={"User-Agent": "mp-player"})
                 with urllib.request.urlopen(req, timeout=30) as resp:
                     content = resp.read()
-                with open(current_file, 'wb') as f:
-                    f.write(content)
-                updated = True
+                # 通过 py_compile 校验完整性后再替换，避免损坏文件覆盖原文件（bug #17）
+                if _safe_replace_py(content, current_file):
+                    updated = True
+                # 校验失败时 _safe_replace_py 已打印错误信息，updated 保持 False
             except Exception as e:
                 print(f"  从 raw 下载失败: {e}")
 
@@ -8454,10 +8608,7 @@ def main():
                 if ext not in media_exts:
                     skipped.append((t, f"非媒体文件({ext})"))
                     continue
-                # 跳过已是 .lrc 的文件
-                if ext == '.lrc':
-                    skipped.append((t, "已是歌词文件"))
-                    continue
+                # 注：.lrc 不在 media_exts 中，已被上一个判断拦截，无需重复判断
                 valid_files.append(t)
 
             if skipped:
@@ -8506,9 +8657,8 @@ def main():
             sys.exit(0 if fail_count == 0 else 1)
 
     if not args.files:
-        print("错误: 请指定要播放的媒体文件")
-        print("使用 'mp --help' 查看使用方法")
-        sys.exit(1)
+        # 无文件参数时默认使用当前目录（v2.11.9 引入）
+        args.files = ['.']
     
     # 加载配置
     config = Config()

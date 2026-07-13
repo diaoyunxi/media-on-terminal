@@ -3,6 +3,35 @@
 
 一个轻量级的终端媒体播放器，支持多种音频和视频格式，可在终端中直接播放音乐和视频。
 
+## 📋 更新日志
+
+### v2.11.10
+
+**Bug 修复**（共 15 项，覆盖运行崩溃、行为异常、显示问题三类）：
+
+- 🐛 **依赖检查崩溃修复**：`check_and_install_dependencies` 安装 pygame 失败时不再 `sys.exit`，改为打印警告并继续，让 `--reverb-list`/`--eq-list`/`--radio-list`/`--library-stats`/`--stats`/`--lyrics` 等纯展示/查询命令在无 SDL2 环境下仍可运行
+- 🐛 **LRC 时间标签解析**（`_parse_lrc`）：1 位毫秒归一化修正（`[01:30.5]` 现正确解析为 90.5 秒，原错误解析为 0.005 秒）；秒数 ≥60 自动进位到分钟（`[00:90.00]` → 90.0 秒）
+- 🐛 **QQ 音乐歌词 jsonp 解析**（`_qq_lyric`）：jsonp 包裹函数名不固定（`callback`/`MusicJsonCallback` 等），改用正则通用提取，避免因函数名不同导致解析失败
+- 🐛 **未知歌词源兜底**（`_fetch_lyric_by_candidate`）：未知 source 不再隐式返回 `None`，统一返回 `""`，避免下游 `_has_timeline(None)` 行为不一致
+- 🐛 **歌词候选评分**（`_score_candidate`）：英文标识改用 token 完全匹配，避免子串误伤（`live` 不再误伤 `alive`/`oliver`，`inst` 不再误伤 `instant`，`3d` 不再误伤 `3dream`）
+- 🐛 **歌词搜索评分重复计算**（`search_first`）：修正评分重复累加导致候选排序错乱的问题
+- 🐛 **状态栏歌词来源标识**：网易云标签统一为"网易云"（原"网易"）
+- 🐛 **进度显示清屏**（`display_progress`）：清屏循环结束后光标位置错误，补上移回首行，避免多行刷新时残留旧内容
+- 🐛 **手动搜索歌词暂停状态恢复**（`_manual_search_lyrics_interactive`）：修复 finally 块中 pause 状态恢复的竞态条件
+- 🐛 **版本号比较**（`_compare_versions`）：支持大写 `V` 前缀（`V2.11.9`）；支持预发布版本比较（`1.2.3` > `1.2.3-beta`）
+- 🐛 **--lyrics 批量模式死代码**：删除对 `.lrc` 的重复判断（已被 media_exts 拦截）
+- 🐛 **更新下载完整性校验**（`check_for_update`）：新增 `_safe_replace_py` 辅助函数，所有下载的 `mp.py` 在替换本地文件前先用 `py_compile` 校验语法完整性，校验失败保留原文件，避免损坏/不完整的下载覆盖可用版本
+- 🐛 **GitHub API 速率限制**（`_fetch_latest_version_github`）：新增 24 小时本地缓存（`~/.config/mp/update_cache.json`），缓存有效期内不请求 API；API 请求失败时用过期缓存兜底，避免未认证 60 次/小时限制导致更新检查完全失效
+
+**功能合并**：
+- ✨ 合并 v2.11.9：无文件参数时默认使用当前目录（`args.files = ['.']`）
+
+**测试**：27 项单元测试全部通过，覆盖所有修复点。
+
+### v2.11.9
+
+- 无文件参数时默认使用当前目录
+
 ## ✨ 特性
 
 - 🎵 支持多种音频格式：MP3、WAV、OGG、M4A、FLAC、AAC、OPUS 等
