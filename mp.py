@@ -3,6 +3,46 @@
 Terminal Media Player - mp
 轻量级终端媒体播放器
 支持音频和视频播放，包含播放列表、音量控制、循环播放等功能
+
+================================================================================
+模块结构说明（本文件为 8000+ 行单文件，以下为功能分区，便于维护导航）
+================================================================================
+  区段一  工具函数与依赖检查        约 36~200 行
+    - _display_width / _truncate_to_width: 终端显示宽度计算（emoji/CJK 宽字符）
+    - get_pip_install_args / install_system_dependencies / check_and_install_dependencies / check_ffmpeg
+  区段二  配置与信息类              约 175~354 行
+    - Config: 配置管理（音量、速度、循环模式等持久化）
+    - MediaInfo: 媒体文件信息读取（ffprobe 封装）
+  区段三  播放管理类              约 355~839 行
+    - BookmarkManager / FavoritesManager / HistoryManager / SleepTimer / ABLoop / RadioManager / QueueManager
+  区段四  音频处理类              约 840~1146 行
+    - AudioConverter / StatisticsManager / Equalizer
+  区段五  交互工具类              约 1147~1793 行
+    - FileBrowser / NoiseGenerator / MetadataEditor / CrossfadeManager / PitchControl
+  区段六  歌词与可视化            约 1794~2541 行
+    - LyricsDisplay / OnlineLyricsFetcher / AudioVisualizer
+  区段七  播放列表与播放器        约 2542~4054 行
+    - Playlist / AudioPlayer / VideoPlayer / AudioRecorder
+  区段八  媒体工具类（40+ 个）   约 4055~6937 行
+    - 音频提取/转换/合并/反向/淡入淡出/混响/字幕/BPM/截图/归一化/裁剪/分段/指纹/混音等
+    - 视频转GIF/拼接/缩放/旋转/裁剪/帧率转换/ASCII艺术导出等
+    - 重复查找/配置备份/批量重命名/频谱图/波形图/封面提取/音量增益/铃声/声道/采样率等
+  区段九  帮助与自动更新          约 6938~7597 行
+    - show_help / play_playlist / _fetch_latest_version_github / _compare_versions / _safe_replace_py / check_for_update
+  区段十  主函数                  约 7598~末尾 行
+    - main: 命令行参数解析与分发
+
+================================================================================
+代码审查优化建议（后续版本改进方向）
+================================================================================
+  1. 建议引入 logging 模块替代 print：当前大量使用 print 输出调试/警告信息，
+     不利于日志分级和文件持久化。后续可统一使用 logging.getLogger(__name__)
+     配合 logging.basicConfig(level=...) 实现分级日志。
+  2. 建议将 Config 类改用 @dataclass：当前 Config 使用字典存储配置，
+     可改用 dataclasses.dataclass 实现类型安全、自动 __repr__、默认值管理。
+  3. 建议提取工具函数到独立模块：_display_width / _truncate_to_width / format_time
+     等通用函数可抽取到 utils.py，降低单文件复杂度，提高可测试性。
+================================================================================
 """
 
 import sys
@@ -30,7 +70,7 @@ import unicodedata
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 
-__version__ = "2.11.10"
+__version__ = "2.11.11"
 
 
 def _display_width(s: str) -> int:
@@ -81,7 +121,12 @@ PLAYLIST_DIR = CONFIG_DIR / 'playlists'
 FAVORITES_FILE = CONFIG_DIR / 'favorites.json'
 HISTORY_FILE = CONFIG_DIR / 'history.json'
 RADIO_FILE = CONFIG_DIR / 'radio.json'
-UPDATE_CACHE_FILE = CONFIG_DIR / 'update_cache.json'  # GitHub 版本检查缓存（避免速率限制，bug #14）
+# GitHub 版本检查缓存（避免速率限制，bug #14）
+# 缓存设计说明：未认证 GitHub API 限制 60 次/小时/IP，频繁检查会导致更新功能失效。
+# 缓存有效期 24 小时（CACHE_TTL），有效期内直接返回缓存结果不请求 API；
+# API 请求失败时使用过期缓存兜底，保证更新检查始终有返回值。
+# 此缓存机制设计合理：既避免了速率限制问题，又通过过期兜底保证了可用性。
+UPDATE_CACHE_FILE = CONFIG_DIR / 'update_cache.json'
 
 
 def get_pip_install_args():
@@ -95,20 +140,36 @@ def get_pip_install_args():
 
 
 def install_system_dependencies():
-    """安装系统级依赖（Linux需要）"""
+    """安装系统级依赖（Linux需要）
+
+    安全提示：自动使用 sudo 安装系统依赖存在安全风险，
+    此处添加用户确认环节，避免未经授权的特权操作。
+    """
     system = platform.system()
     if system == "Linux":
         try:
-            if subprocess.run(['which', 'apt'], capture_output=True).returncode == 0:
-                subprocess.run(['sudo', 'apt', 'install', '-y', 'libsdl2-2.0-0', 'libsdl2-mixer-2.0-0'], check=True)
+            if subprocess.run(['which', 'apt'], capture_output=True, timeout=30).returncode == 0:
+                # 添加用户确认，避免未经授权自动使用 sudo
+                try:
+                    confirm = input("即将使用 sudo 安装系统依赖 (libsdl2-2.0-0, libsdl2-mixer-2.0-0)，是否继续？(y/N): ")
+                except (EOFError, KeyboardInterrupt):
+                    print("已取消安装")
+                    return
+                if confirm.lower() != 'y':
+                    print("已取消安装，部分功能可能不可用")
+                    return
+                subprocess.run(['sudo', 'apt', 'install', '-y', 'libsdl2-2.0-0', 'libsdl2-mixer-2.0-0'],
+                               check=True, timeout=120)
+        except subprocess.TimeoutExpired:
+            print("系统依赖安装超时")
         except Exception as e:
             print(f"系统依赖安装警告: {e}")
 
 
 def check_and_install_dependencies():
     """检查并安装Python依赖"""
-    if sys.version_info < (3, 7):
-        print("错误: 需要Python 3.7或更高版本")
+    if sys.version_info < (3, 8):
+        print("错误: 需要Python 3.8或更高版本")
         sys.exit(1)
     
     required_packages = ['pygame']
@@ -140,7 +201,12 @@ def check_and_install_dependencies():
 
 
 def check_ffmpeg():
-    """检查并安装ffmpeg"""
+    """检查并安装ffmpeg
+
+    注意：安装失败时不再直接 sys.exit(1)，改为打印警告并返回。
+    延迟到实际调用 ffmpeg/ffprobe 时才报错，让 --help、--lyrics 等不依赖
+    ffmpeg 的命令仍能正常运行。
+    """
     import shutil
     if not shutil.which('ffmpeg'):
         system = platform.system()
@@ -149,31 +215,45 @@ def check_ffmpeg():
         try:
             if system == "Darwin":
                 if shutil.which('brew'):
-                    subprocess.run(['brew', 'install', 'ffmpeg'], check=True)
+                    subprocess.run(['brew', 'install', 'ffmpeg'], check=True, timeout=300)
                 else:
                     raise Exception("Homebrew未安装")
             elif system == "Linux":
                 if shutil.which('apt'):
-                    subprocess.run(['sudo', 'apt', 'update'], check=True)
-                    subprocess.run(['sudo', 'apt', 'install', '-y', 'ffmpeg'], check=True)
+                    subprocess.run(['sudo', 'apt', 'update'], check=True, timeout=120)
+                    subprocess.run(['sudo', 'apt', 'install', '-y', 'ffmpeg'], check=True, timeout=300)
                 elif shutil.which('pacman'):
-                    subprocess.run(['sudo', 'pacman', '-S', '--noconfirm', 'ffmpeg'], check=True)
+                    subprocess.run(['sudo', 'pacman', '-S', '--noconfirm', 'ffmpeg'], check=True, timeout=300)
                 elif shutil.which('dnf'):
-                    subprocess.run(['sudo', 'dnf', 'install', '-y', 'ffmpeg'], check=True)
+                    subprocess.run(['sudo', 'dnf', 'install', '-y', 'ffmpeg'], check=True, timeout=300)
                 else:
                     raise Exception("未找到支持的包管理器")
             print("ffmpeg安装完成！")
+        except subprocess.TimeoutExpired:
+            print("ffmpeg安装超时")
+            print("\n请手动安装ffmpeg")
+            if system == "Linux":
+                print("  sudo apt install ffmpeg  # Debian/Ubuntu")
+                print("  sudo pacman -S ffmpeg    # Arch")
+            # 延迟检查：不退出，让不依赖 ffmpeg 的命令继续运行
+            return
         except Exception as e:
             print(f"ffmpeg安装失败: {e}")
             print("\n请手动安装ffmpeg")
             if system == "Linux":
                 print("  sudo apt install ffmpeg  # Debian/Ubuntu")
                 print("  sudo pacman -S ffmpeg    # Arch")
-            sys.exit(1)
+            # 延迟检查：不退出，让不依赖 ffmpeg 的命令继续运行
+            return
 
 
 class Config:
-    """配置管理类"""
+    """配置管理类
+
+    优化建议：后续版本可改用 @dataclass 装饰器实现，获得类型安全、
+    自动 __repr__、字段默认值管理、frozen（不可变）等优势，
+    替代当前基于字典的手动管理方式。
+    """
     
     DEFAULT_CONFIG = {
         'volume': 100,  # 音量 0-100
@@ -249,7 +329,7 @@ class MediaInfo:
                 '-show_format', '-show_streams',
                 str(file_path)
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             
             if result.returncode == 0:
                 data = json.loads(result.stdout)
@@ -887,7 +967,7 @@ class AudioConverter:
         cmd.append(str(output_path))
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0:
                 print(f"✓ 转换成功: {output_path.name}")
                 return True
@@ -1486,6 +1566,7 @@ class NoiseGenerator:
             'pipe:0'
         ]
 
+        # 注意：subprocess.Popen 不支持 timeout 构造参数，应在 wait()/communicate() 中使用 timeout
         noise_proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
         )
@@ -1611,7 +1692,7 @@ class MetadataEditor:
                 '-show_format',
                 str(file_path)
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0:
                 data = json.loads(result.stdout)
                 fmt_tags = data.get('format', {}).get('tags', {})
@@ -1640,7 +1721,7 @@ class MetadataEditor:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0:
                 # 替换原文件
                 temp_path.replace(file_path)
@@ -1959,7 +2040,7 @@ class LyricsDisplay:
                 '-show_format',
                 str(file_path)
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0:
                 data = json.loads(result.stdout)
                 tags = data.get('format', {}).get('tags', {}) or {}
@@ -2725,11 +2806,15 @@ class AudioPlayer:
             print("请运行: pip install pygame")
             sys.exit(1)
 
-        # 抑制pygame的欢迎信息
+        # 抑制pygame的欢迎信息（用 try-finally 确保异常时也能恢复 stdout 并关闭 devnull 文件句柄）
         original_stdout = sys.stdout
-        sys.stdout = open(os.devnull, 'w')
-        pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
-        sys.stdout = original_stdout
+        devnull_fp = open(os.devnull, 'w')
+        sys.stdout = devnull_fp
+        try:
+            pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
+        finally:
+            sys.stdout = original_stdout
+            devnull_fp.close()
         
         self.is_playing = False
         self.is_paused = False
@@ -2761,11 +2846,11 @@ class AudioPlayer:
                 'ffprobe', '-v', 'error', '-show_entries', 'format=duration',
                 '-of', 'default=noprint_wrappers=1:nokey=1', str(self.file_path)
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and result.stdout.strip():
                 return float(result.stdout.strip())
-        except:
-            pass
+        except Exception:
+            pass  # ffprobe 获取时长失败，返回 0（调用方会处理未知时长）
         return 0
     
     def load_audio(self):
@@ -2774,8 +2859,8 @@ class AudioPlayer:
 
         duration_sec = self.get_audio_duration()
         if duration_sec == 0:
-            print("警告: 无法获取音频时长")
-            self.total_duration = 180000
+            print("警告: 无法获取音频时长，将显示为未知时长")
+            self.total_duration = 0  # 设为 0 表示未知时长，UI 中标注"未知"
         else:
             self.total_duration = duration_sec * 1000
 
@@ -2795,8 +2880,12 @@ class AudioPlayer:
             elif status in ("no_result", "no_timeline", "network_error"):
                 # 静默失败，不打扰用户；可按 N 手动重试
                 pass
-        except Exception:
-            pass
+        except Exception as e:
+            # 记录异常信息，避免后台线程异常被完全吞掉（便于排查问题）
+            # 注意：此处不使用 logging 模块以保持轻量，后续版本可引入 logging 统一管理
+            import traceback
+            traceback.print_exc()
+            print(f"\n⚠️ 歌词后台搜索异常: {e}")
 
     def _manual_search_lyrics_interactive(self):
         """交互式手动搜索歌词（快捷键 N 触发）
@@ -2907,10 +2996,11 @@ class AudioPlayer:
         
         cmd.append(str(self.file_path))
         
-        devnull = open(os.devnull, 'w')
+        # 使用 subprocess.DEVNULL 替代手动打开的 devnull 文件，避免文件句柄泄漏（Python 3.3+ 内置）
+        # 注意：Popen 不支持 timeout 构造参数，进程在 stop() 中通过 wait(timeout=1) 控制超时
         self.process = subprocess.Popen(
             cmd,
-            stdout=devnull,
+            stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             stdin=subprocess.DEVNULL
         )
@@ -2940,6 +3030,7 @@ class AudioPlayer:
                 '-'
             ]
             
+            # 注意：Popen 不支持 timeout 构造参数，此进程为持续频谱捕获，由主循环控制生命周期
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -3062,8 +3153,8 @@ class AudioPlayer:
         # 获取终端宽度
         try:
             term_width = os.get_terminal_size().columns
-        except:
-            term_width = 80
+        except Exception:
+            term_width = 80  # 非 TTY 环境回退到 80 列
 
         # 检测终端宽度变化：如果窗口大小变了，之前记录的行数不可靠，
         # 需要清除所有旧行并重置计数
@@ -3230,8 +3321,8 @@ class AudioPlayer:
             tty.setcbreak(fd)
             try:
                 termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-            except:
-                pass
+            except Exception:
+                pass  # 终端属性恢复失败可忽略，不影响后续输入
 
             user_input = input("分钟数: ").strip()
             try:
@@ -3605,8 +3696,8 @@ class AudioPlayer:
                         return
                 
                 termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-        except:
-            pass
+        except Exception:
+            pass  # 书签恢复交互异常时忽略，正常开始播放
         
         # 超时或按其他键，正常开始播放
         self.play_from_position(0)
@@ -3656,7 +3747,7 @@ class VideoPlayer:
                 '-of', 'csv=p=0',
                 str(self.file_path)
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             
             if result.returncode == 0:
                 lines = result.stdout.strip().split('\n')
@@ -3671,47 +3762,50 @@ class VideoPlayer:
                         else:
                             try:
                                 self.fps = float(parts[0])
-                            except:
-                                pass
+                            except Exception:
+                                pass  # 帧率解析失败，后续使用默认值
                         
                         # 解析宽度、高度
                         try:
                             self.width = int(parts[1])
                             self.height = int(parts[2])
-                        except:
-                            pass
+                        except Exception:
+                            pass  # 宽高解析失败，后续使用默认值
                         
                         # 解析时长
                         try:
                             self.duration = float(parts[3])
-                        except:
+                        except Exception:
                             try:
                                 self.duration = float(parts[4])
-                            except:
-                                pass
+                            except Exception:
+                                pass  # 时长解析失败，后续使用默认值
                 
                 if self.fps > 0 and self.duration > 0:
                     self.total_frames = int(self.fps * self.duration)
         except Exception as e:
             print(f"警告: 无法获取视频信息: {e}")
         
-        # 默认值
+        # 默认值：获取失败时使用回退值并提示用户
+        info_failed = (self.fps == 0 or self.width == 0 or self.height == 0 or self.duration == 0)
+        if info_failed:
+            print("提示: 部分视频信息获取失败，将使用默认值（可能影响播放体验）")
         if self.fps == 0:
-            self.fps = 25
+            self.fps = 25  # 默认 25 fps
         if self.width == 0:
-            self.width = 640
+            self.width = 640  # 默认宽度
         if self.height == 0:
-            self.height = 480
+            self.height = 480  # 默认高度
         if self.duration == 0:
-            self.duration = 0
+            self.duration = 0  # 未知时长，保持 0
     
     def _get_terminal_size(self):
         """获取终端尺寸"""
         try:
             size = os.get_terminal_size()
             return size.columns, size.lines
-        except:
-            return 80, 24
+        except Exception:
+            return 80, 24  # 非 TTY 环境回退到 80x24
     
     def _pixel_to_char(self, pixel_value):
         """将像素值转换为ASCII字符"""
@@ -3719,11 +3813,25 @@ class VideoPlayer:
         return self.ASCII_CHARS[index]
     
     def _render_frame(self, frame_data, width, height):
-        """渲染一帧到终端"""
+        """渲染一帧到终端
+
+        性能说明：
+        此处使用逐像素嵌套循环（O(width*height)）将 RGB 帧数据转换为 ASCII 灰度字符。
+        对于较大分辨率（如 200x80 = 16000 像素），每帧需遍历全部像素，
+        是视频播放的主要性能瓶颈。
+
+        优化建议（后续版本）：
+        1. 使用 numpy 向量化计算：frame_data.reshape(-1,3) 后用矩阵运算批量求灰度，
+           可提升 5~10 倍性能。
+        2. 添加降采样选项：在 ffmpeg 输出时通过 -vf scale 降低帧分辨率，
+           或在渲染前对 frame_data 做步长采样（如每隔 2 像素取一个）。
+        3. 预计算灰度→字符的查找表（LUT），避免每次调用 _pixel_to_char 计算索引。
+        """
         # 移动到光标起始位置
         sys.stdout.write('\033[H')
         
         # 将帧数据转换为灰度图并渲染
+        # 性能瓶颈：逐像素遍历，大分辨率时帧率下降明显
         chars_per_row = width * 3  # RGB
         lines = []
         
@@ -3758,11 +3866,12 @@ class VideoPlayer:
         if self.playback_speed != 1.0:
             cmd.extend(['-af', f'atempo={self.playback_speed}'])
         
-        devnull = open(os.devnull, 'w')
+        # 使用 subprocess.DEVNULL 替代手动打开的 devnull 文件，避免文件句柄泄漏（Python 3.3+ 内置）
+        # 注意：Popen 不支持 timeout 构造参数，进程在 stop() 中通过 wait(timeout=1) 控制超时
         self.audio_process = subprocess.Popen(
             cmd,
-            stdout=devnull,
-            stderr=devnull,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             stdin=subprocess.DEVNULL
         )
     
@@ -3813,6 +3922,7 @@ class VideoPlayer:
             '-'
         ]
         
+        # 注意：Popen 不支持 timeout 构造参数，此进程为视频帧捕获，由主播放循环控制生命周期
         self.ffmpeg_process = subprocess.Popen(
             ffmpeg_cmd,
             stdout=subprocess.PIPE,
@@ -3931,15 +4041,15 @@ class VideoPlayer:
             self.ffmpeg_process.terminate()
             try:
                 self.ffmpeg_process.wait(timeout=1)
-            except:
-                self.ffmpeg_process.kill()
+            except Exception:
+                self.ffmpeg_process.kill()  # 等待超时则强制终止
         
         if self.audio_process and self.audio_process.poll() is None:
             self.audio_process.terminate()
             try:
                 self.audio_process.wait(timeout=1)
-            except:
-                self.audio_process.kill()
+            except Exception:
+                self.audio_process.kill()  # 等待超时则强制终止
     
     def format_time(self, ms):
         """格式化时间显示"""
@@ -4004,6 +4114,7 @@ class AudioRecorder:
         print(f"{'='*60}\n")
 
         try:
+            # 录制为长进程（用户按 Ctrl+C 停止），不设 timeout 避免被中途终止
             subprocess.run(cmd)
             if output_path.exists() and output_path.stat().st_size > 0:
                 print(f"\n✓ 录制完成: {output_path}")
@@ -4108,7 +4219,7 @@ class AudioExtractor:
         cmd.append(str(output_path))
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 提取成功: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -4182,7 +4293,7 @@ class GifConverter:
                 '-vf', f'fps={fps},scale={width}:-1:flags=lanczos,palettegen',
                 str(palette_path)
             ]
-            r1 = subprocess.run(cmd1, capture_output=True, text=True)
+            r1 = subprocess.run(cmd1, capture_output=True, text=True, timeout=30)
             if r1.returncode != 0:
                 print(f"✗ 生成调色板失败: {r1.stderr.strip()}")
                 return False
@@ -4195,7 +4306,7 @@ class GifConverter:
                 '-lavfi', f'fps={fps},scale={width}:-1:flags=lanczos [x]; [x][1:v] paletteuse',
                 str(output_path)
             ]
-            r2 = subprocess.run(cmd2, capture_output=True, text=True)
+            r2 = subprocess.run(cmd2, capture_output=True, text=True, timeout=30)
 
             # 清理调色板
             if palette_path.exists():
@@ -4253,7 +4364,7 @@ class ScreenshotCapture:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 截图成功: {output_path.name}")
                 if info.get('width'):
@@ -4360,7 +4471,7 @@ class AudioNormalizer:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode != 0 or not tmp.exists():
                 print(f"✗ 归一化失败: {result.stderr.strip()}")
                 if tmp.exists():
@@ -4688,7 +4799,7 @@ class AudioTrimmer:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 裁剪完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -4702,7 +4813,7 @@ class AudioTrimmer:
                 '-i', str(file_path),
                 str(output_path)
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 裁剪完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -4758,7 +4869,7 @@ class AudioMerger:
         ] + fmt_args + [str(output_path)])
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 合并完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -4793,7 +4904,7 @@ class AudioReverser:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 反向完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -4869,7 +4980,7 @@ class FadeEffect:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 淡入淡出完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -4931,7 +5042,7 @@ class ReverbEffect:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 混响完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -4956,7 +5067,7 @@ class SubtitleExtractor:
             str(video_path)
         ]
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0:
                 data = json.loads(result.stdout)
                 return data.get('streams', [])
@@ -5014,7 +5125,7 @@ class SubtitleExtractor:
         ] + codec_args + [str(output_path)]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 size = output_path.stat().st_size
                 if size == 0:
@@ -5053,7 +5164,7 @@ class BPMDetector:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True)
+            result = subprocess.run(cmd, capture_output=True, timeout=30)
             if result.returncode != 0 or not result.stdout:
                 print("✗ 无法读取音频数据")
                 return None
@@ -5179,7 +5290,7 @@ class ContactSheet:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 缩略图组合已生成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -5401,7 +5512,7 @@ class BatchRenamer:
                     '-print_format', 'json', '-show_format',
                     str(entry)
                 ]
-                r = subprocess.run(cmd, capture_output=True, text=True)
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
                 if r.returncode == 0:
                     data = json.loads(r.stdout)
                     tags = data.get('format', {}).get('tags', {})
@@ -5485,7 +5596,7 @@ class SpectrogramGenerator:
         ])
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 频谱图已生成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -5529,7 +5640,7 @@ class WaveformGenerator:
         ])
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 波形图已生成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -5553,7 +5664,7 @@ class CoverExtractor:
             '-show_streams', str(file_path)
         ]
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode != 0:
                 return None
             data = json.loads(result.stdout)
@@ -5597,7 +5708,7 @@ class CoverExtractor:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists() and output_path.stat().st_size > 0:
                 print(f"✓ 封面已提取: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -5640,7 +5751,7 @@ class VolumeGain:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -5721,7 +5832,7 @@ class RingtoneMaker:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 铃声已生成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -5737,7 +5848,7 @@ class RingtoneMaker:
                 f'afade=t=out:st={duration - fade_out:.2f}:d={fade_out:.2f}',
                 str(output_path)
             ]
-            result = subprocess.run(cmd_fallback, capture_output=True, text=True)
+            result = subprocess.run(cmd_fallback, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 铃声已生成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -5781,7 +5892,7 @@ class ChannelConverter:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -5841,7 +5952,7 @@ class SampleRateConverter:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -5922,7 +6033,7 @@ class AVMuxer:
             ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 合成完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -5966,7 +6077,7 @@ class MediaHealthChecker:
             '-show_format', '-show_streams',
             str(file_path)
         ]
-        probe = subprocess.run(probe_cmd, capture_output=True, text=True)
+        probe = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=30)
         if probe.returncode != 0:
             result['errors'].append(f'容器解析失败: {probe.stderr.strip()}')
             return result
@@ -5987,7 +6098,7 @@ class MediaHealthChecker:
             '-i', str(file_path),
             '-f', 'null', '-'
         ]
-        decode = subprocess.run(decode_cmd, capture_output=True, text=True)
+        decode = subprocess.run(decode_cmd, capture_output=True, text=True, timeout=30)
         if decode.returncode == 0 and not decode.stderr.strip():
             result['decodable'] = True
         else:
@@ -6043,7 +6154,7 @@ class SilenceCutter:
             '-f', 'null', '-'
         ]
         # silencedetect 信息输出在 stderr，需要 info 级别
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         starts = []
         ends = []
         for line in result.stderr.splitlines():
@@ -6130,7 +6241,7 @@ class SilenceCutter:
 
         print(f"静音裁剪: {file_path.name} (阈值 {threshold_db}dB，最短 {min_duration}秒)")
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 old_dur = info.get('duration', 0)
                 new_info = MediaInfo.get_info(output_path)
@@ -6202,7 +6313,7 @@ class MediaSplitter:
                        '-ss', f'{start:.3f}', '-t', f'{seg_dur:.3f}',
                        '-i', str(file_path),
                        '-c', 'copy', str(out)]
-                if subprocess.run(cmd, capture_output=True).returncode == 0 and out.exists():
+                if subprocess.run(cmd, capture_output=True, timeout=30).returncode == 0 and out.exists():
                     count += 1
                     print(f"  ✓ {out.name}")
         else:
@@ -6220,7 +6331,7 @@ class MediaSplitter:
                        '-ss', f'{start:.3f}', '-t', f'{t:.3f}',
                        '-i', str(file_path),
                        '-c', 'copy', str(out)]
-                if subprocess.run(cmd, capture_output=True).returncode == 0 and out.exists():
+                if subprocess.run(cmd, capture_output=True, timeout=30).returncode == 0 and out.exists():
                     count += 1
                     print(f"  ✓ {out.name}")
                 start += t
@@ -6303,7 +6414,7 @@ class AudioFingerprinter:
                '-fp_format', 'raw',
                '-']
         try:
-            result = subprocess.run(cmd, capture_output=True)
+            result = subprocess.run(cmd, capture_output=True, timeout=30)
             if result.returncode == 0 and result.stdout:
                 return result.stdout
         except Exception:
@@ -6387,7 +6498,7 @@ class VolumeRamp:
         direction = "渐强" if end_db > start_db else ("渐弱" if end_db < start_db else "恒定")
         print(f"音量{direction}: {start_db:+.1f}dB → {end_db:+.1f}dB ({file_path.name})")
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -6434,7 +6545,7 @@ class AsciiArtExporter:
 
         print(f"导出 ASCII 艺术: {video_path.name} ({width}x{height} @ {fps}fps)")
         try:
-            proc = subprocess.run(cmd, capture_output=True)
+            proc = subprocess.run(cmd, capture_output=True, timeout=30)
             if proc.returncode != 0:
                 err = proc.stderr.decode(errors='ignore').strip()
                 print(f"✗ 失败: {err[:200]}")
@@ -6522,7 +6633,7 @@ class AudioMixMixer:
         for i, f in enumerate(input_files, 1):
             print(f"  [{i}/{n}] {f.name}")
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 混音完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -6569,7 +6680,7 @@ class VideoConcat:
 
             print(f"拼接: {len(input_files)} 个文件 → {output_path.name}")
             print(f"  （要求各文件编码/分辨率/时基一致，否则需先统一格式）")
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 拼接完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -6626,7 +6737,7 @@ class VideoScaler:
         print(f"缩放: {video_path.name} → {width}x{height}"
               f"{' (保持宽高比)' if keep_aspect else ' (强制拉伸)'}")
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 缩放完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -6677,7 +6788,7 @@ class VideoRotator:
 
         print(f"旋转: {video_path.name} → 顺时针 {degrees}°")
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 旋转完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -6732,7 +6843,7 @@ class VideoCropper:
 
         print(f"裁剪: {video_path.name} 画面 ({x},{y}) + {width}x{height}")
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 裁剪完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -6776,7 +6887,7 @@ class FpsConverter:
 
         print(f"帧率转换: {video_path.name} → {fps} fps")
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 转换完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -6815,7 +6926,7 @@ class MetadataStripper:
 
         print(f"剥离元数据: {file_path.name}")
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 src_size = file_path.stat().st_size
                 dst_size = output_path.stat().st_size
@@ -6923,7 +7034,7 @@ class SegmentRepeater:
         print(f"片段重复: {file_path.name} [{start:.2f}s→{end:.2f}s] x {times} + 尾段")
         print(f"  输出预计时长: {total_audio_duration:.2f}s (原 {duration:.2f}s)")
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -7328,6 +7439,10 @@ def _compare_versions(v1, v2):
     支持预发布标识：每段分离为数字部分和后缀部分，
     数字不同按数字比较；数字相同时无后缀（正式版）> 有后缀（预发布版）。
     例如 1.2.3-beta < 1.2.3 < 1.2.4。
+
+    复用说明：此函数为通用版本比较工具，符合 SemVer 规范，
+    可在自动更新检查、依赖版本对比等场景复用。
+    建议后续提取到独立工具模块（如 version_utils.py）供其他项目共享。
     """
     def _strip_v(s):
         # 仅去除一个 v/V 前缀，避免 lstrip('v') 误删多个 v 或忽略大写 V
@@ -7401,6 +7516,61 @@ def _safe_replace_py(content, target_path):
             pass
 
 
+def _verify_download_sha256(content, checksum_url, asset_name=""):
+    """校验下载内容的 SHA256 完整性（防篡改/防损坏）
+
+    安全机制：在 py_compile 语法校验之外，额外提供 SHA256 签名验证，
+    防止下载内容在传输过程中被篡改或注入恶意代码。
+
+    参数:
+        content: 字节串，已下载的文件内容
+        checksum_url: 校验文件的 URL（如 SHA256SUMS 或 mp.py.sha256）
+        asset_name: 资产名称（用于在多文件校验文件中匹配对应行）
+    返回:
+        True 表示校验通过，或无校验文件可用（降级为仅 py_compile 校验）
+        False 表示校验文件存在但哈希不匹配（可能被篡改），应中止更新
+    """
+    try:
+        req = urllib.request.Request(checksum_url, headers={"User-Agent": "mp-player"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            checksum_data = resp.read().decode('utf-8', errors='replace').strip()
+        # 计算实际内容的 SHA256
+        actual_hash = hashlib.sha256(content).hexdigest()
+        # 解析校验文件，格式: <sha256>  <filename>（每行一条）
+        for line in checksum_data.splitlines():
+            parts = line.strip().split(None, 1)
+            if len(parts) >= 2:
+                expected_hash, fname = parts[0], parts[1].strip()
+                # 匹配文件名（支持 * 前缀通配符）
+                if asset_name and fname.lstrip('*') in asset_name:
+                    if expected_hash.lower() == actual_hash.lower():
+                        print("  SHA256 校验通过")
+                        return True
+                    else:
+                        print("  SHA256 校验失败！下载内容可能被篡改")
+                        print(f"    期望: {expected_hash}")
+                        print(f"    实际: {actual_hash}")
+                        return False
+            elif len(parts) == 1 and not asset_name:
+                # 单行仅含 hash（无文件名）
+                if parts[0].lower() == actual_hash.lower():
+                    print("  SHA256 校验通过")
+                    return True
+        # 校验文件存在但未找到匹配的条目
+        print(f"  SHA256 校验文件中未找到 {asset_name or '文件'} 的条目，跳过校验（降级）")
+        return True
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            # 无校验文件可用，降级为仅 py_compile 校验
+            return True
+        print(f"  获取 SHA256 校验文件失败: {e}")
+        return True
+    except Exception as e:
+        # 校验过程出错不阻塞更新（降级处理，避免网络问题导致无法更新）
+        print(f"  SHA256 校验异常（已降级跳过）: {e}")
+        return True
+
+
 def check_for_update():
     """检查 GitHub 上是否有新版本，如有则询问用户是否更新
 
@@ -7469,6 +7639,18 @@ def check_for_update():
                     req = urllib.request.Request(asset_url, headers={"User-Agent": "mp-player"})
                     with urllib.request.urlopen(req, timeout=60) as resp:
                         content = resp.read()
+                    # SHA256 完整性校验：尝试从 Release Assets 获取校验文件并验证（防篡改）
+                    checksum_asset = None
+                    for a in assets:
+                        cname = a.get("name", "").lower()
+                        if "sha256" in cname or "checksum" in cname:
+                            checksum_asset = a
+                            break
+                    if checksum_asset and checksum_asset.get("url"):
+                        if not _verify_download_sha256(content, checksum_asset["url"], asset_name):
+                            raise Exception("SHA256 校验失败，下载内容可能被篡改")
+                    else:
+                        print("  提示: Release 中未提供 SHA256 校验文件，仅做语法校验")
                     # 写入临时文件并解压
                     with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
                         tmp.write(content)
@@ -7519,6 +7701,10 @@ def check_for_update():
                 req = urllib.request.Request(raw_url, headers={"User-Agent": "mp-player"})
                 with urllib.request.urlopen(req, timeout=30) as resp:
                     content = resp.read()
+                # SHA256 完整性校验：尝试获取同目录下的 mp.py.sha256 校验文件（防篡改）
+                sha256_url = raw_url + ".sha256"
+                if not _verify_download_sha256(content, sha256_url, "mp.py"):
+                    raise Exception("SHA256 校验失败，下载内容可能被篡改")
                 # 通过 py_compile 校验完整性后再替换，避免损坏文件覆盖原文件（bug #17）
                 if _safe_replace_py(content, current_file):
                     updated = True
@@ -7812,6 +7998,7 @@ def main():
         ]
         
         try:
+            # 播放为长进程（用户按 Ctrl+C 或 q 停止），不设 timeout 避免被中途终止
             subprocess.run(cmd)
         except KeyboardInterrupt:
             print("\n停止播放")

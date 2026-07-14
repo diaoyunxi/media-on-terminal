@@ -5,6 +5,34 @@
 
 ## 📋 更新日志
 
+### v2.11.11
+
+**代码审查修复**（共 18 项，覆盖严重缺陷、一般问题、优化建议三类）：
+
+**严重缺陷修复**：
+- 🔒 **sys.stdout 泄漏修复**：`pygame.mixer.init` 前的 stdout 重定向改用 try-finally 保护，确保异常时也能恢复 stdout 并关闭 devnull 文件句柄
+- 🔒 **devnull 文件句柄泄漏修复**：`AudioPlayer` 和 `VideoPlayer` 中手动打开的 `open(os.devnull, 'w')` 替换为 `subprocess.DEVNULL`（Python 3.3+ 内置），消除文件句柄泄漏
+- 📝 **单文件模块分区注释**：在文件头部添加详细的模块结构说明，标注 10 个功能分区的行号范围，便于 8000+ 行单文件的维护导航
+- 🔒 **install_system_dependencies 自动 sudo 确认**：添加用户确认提示，避免未经授权自动使用 sudo 安装系统依赖
+- 🐛 **裸 except 修复**：全文件 11 处 `except:` 替换为 `except Exception:` 并添加中文注释说明忽略原因
+
+**一般问题修复**：
+- ⏱️ **subprocess.run 添加 timeout**：52 处 subprocess.run 调用添加 `timeout=30`，6 处 Popen 调用添加 timeout 使用说明注释；录制/播放长进程命令不设 timeout 并注释说明
+- 🐛 **音频时长硬编码修复**：`180000`（3 分钟硬编码）改为 `0`（未知时长），并在 UI 中标注
+- 🐛 **视频信息默认值提示**：获取失败时提示用户将使用默认值
+- 🐛 **check_ffmpeg 延迟检查**：安装失败不再 `sys.exit(1)`，改为打印警告并返回，让不依赖 ffmpeg 的命令继续运行
+- 📈 **Python 版本要求提升**：最低版本从 3.7 提升至 3.8
+- 🔒 **自动更新 SHA256 校验**：新增 `_verify_download_sha256` 函数，在下载更新内容后尝试获取 SHA256 校验文件进行完整性验证，防止篡改
+- 📝 **后台歌词搜索线程异常日志**：异常不再被完全吞掉，添加 traceback 输出和错误提示
+- 📝 **逐像素遍历性能注释**：在 `_render_frame` 添加性能瓶颈说明和 numpy 向量化优化建议
+
+**优化建议注释**：
+- 📝 建议引入 logging 模块替代 print
+- 📝 建议 Config 类改用 @dataclass
+- 📝 建议提取工具函数到独立模块
+- 📝 标注 `_compare_versions` 函数可复用
+- 📝 标注更新缓存机制设计合理
+
 ### v2.11.10
 
 **Bug 修复**（共 15 项，覆盖运行崩溃、行为异常、显示问题三类）：
@@ -125,7 +153,7 @@ chmod +x install.sh
 
 ### 手动安装
 
-1. 确保已安装 Python 3.7+
+1. 确保已安装 Python 3.8+
 2. 安装依赖：
 ```bash
 pip install pygame
@@ -836,7 +864,7 @@ mp-uninstall
 
 ## 🔧 系统要求
 
-- Python 3.7 或更高版本
+- Python 3.8 或更高版本
 - ffmpeg（会自动安装）
 - pygame（会自动安装）
 

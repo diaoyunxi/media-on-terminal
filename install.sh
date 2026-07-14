@@ -62,7 +62,7 @@ if ! command -v $PYTHON_CMD &> /dev/null; then
     if command -v python &> /dev/null; then
         PYTHON_CMD="python"
     else
-        print_error "未找到Python，请先安装Python 3.7+"
+        print_error "未找到Python，请先安装Python 3.8+"
         exit 1
     fi
 fi
@@ -74,8 +74,8 @@ PYTHON_MINOR=$($PYTHON_CMD -c 'import sys; print(sys.version_info.minor)')
 
 print_info "Python版本: $PYTHON_VERSION"
 
-if [ "$PYTHON_MAJOR" -lt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 7 ]); then
-    print_error "需要Python 3.7或更高版本"
+if [ "$PYTHON_MAJOR" -lt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 8 ]); then
+    print_error "需要Python 3.8或更高版本"
     exit 1
 fi
 
