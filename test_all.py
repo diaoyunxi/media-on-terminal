@@ -277,13 +277,13 @@ def test_fingerprint():
 
 def test_volume_ramp():
     log("测试音量渐变 --volume-ramp", "INFO")
-    output = TEST_DIR / "test_audio_ramp_-6dB-6dB.wav"
+    output = TEST_DIR / "test_audio_rampn6d0top6d0.wav"
     run_cmd([sys.executable, "mp.py", "--volume-ramp", "-6", "6", str(TEST_AUDIO_WAV)], timeout=60)
     return test_file_generation(output, "音量渐变成功")
 
 def test_ascii_art():
     log("测试 ASCII 艺术导出 --ascii-art", "INFO")
-    output = TEST_DIR / "test_video_ascii.txt"
+    output = TEST_DIR / "test_video.txt"
     run_cmd([sys.executable, "mp.py", "--ascii-art", str(TEST_VIDEO_MP4), "--ascii-width", "40", "--ascii-fps", "5"], timeout=60)
     return test_file_generation(output, "ASCII 艺术导出成功")
 
