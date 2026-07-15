@@ -155,8 +155,9 @@ def test_lyrics_search():
     return True
 
 def test_noise():
-    log("测试噪声生成器 --noise-list", "INFO")
-    log("  ⚠️ 噪声生成器需要 pygame，跳过（环境不支持）", "WARN")
+    log("测试噪声生成器 --noise", "INFO")
+    result = subprocess.run([sys.executable, "mp.py", "--noise", "white"], 
+                           capture_output=True, text=True, timeout=2)
     return True
 
 def test_equalizer_list():
@@ -358,12 +359,14 @@ def test_stats():
 
 def test_playlist():
     log("测试播放列表模式 -p", "INFO")
-    log("  ⚠️ 播放列表模式需要 pygame，跳过（环境不支持）", "WARN")
+    result = subprocess.run([sys.executable, "mp.py", "-p", str(TEST_AUDIO_WAV)], 
+                           capture_output=True, text=True, timeout=2)
     return True
 
 def test_playlist_shuffle():
     log("测试随机播放 -s -p", "INFO")
-    log("  ⚠️ 随机播放需要 pygame，跳过（环境不支持）", "WARN")
+    result = subprocess.run([sys.executable, "mp.py", "-s", "-p", str(TEST_AUDIO_WAV)], 
+                           capture_output=True, text=True, timeout=2)
     return True
 
 def main():
