@@ -3077,11 +3077,6 @@ class AudioPlayer:
     
     def display_progress(self):
         """显示播放进度条"""
-        bar_length = 50
-        percent = self.current_position / self.total_duration if self.total_duration > 0 else 0
-        filled = int(bar_length * percent)
-        bar = '█' * filled + '─' * (bar_length - filled)
-        
         current_time = self.format_time(self.current_position)
         total_time = self.format_time(self.total_duration)
         
@@ -3149,15 +3144,36 @@ class AudioPlayer:
             status_parts.append(crossfade_status)
 
         status = " | ".join(status_parts)
-
+        
+        # 非 TTY 环境：简化输出，每行一个新进度，不使用 ANSI 序列
+        if not sys.stdout.isatty():
+            percent = self.current_position / self.total_duration if self.total_duration > 0 else 0
+            bar_length = 30
+            filled = int(bar_length * percent)
+            bar = '#' * filled + '-' * (bar_length - filled)
+            line = f"[{bar}] {current_time}/{total_time} {status}"
+            # 歌词
+            if self.lyrics.enabled and self.lyrics.lyrics:
+                current_time_sec = self.current_position / 1000
+                current_lyric, _ = self.lyrics.get_lyrics_at_time(current_time_sec)
+                if current_lyric:
+                    line += f" | {current_lyric}"
+            print(line)
+            return
+        
+        # TTY 环境：使用 ANSI 序列刷新同一行
+        bar_length = 50
+        percent = self.current_position / self.total_duration if self.total_duration > 0 else 0
+        filled = int(bar_length * percent)
+        bar = '█' * filled + '─' * (bar_length - filled)
+        
         # 获取终端宽度
         try:
             term_width = os.get_terminal_size().columns
         except Exception:
-            term_width = 80  # 非 TTY 环境回退到 80 列
-
-        # 检测终端宽度变化：如果窗口大小变了，之前记录的行数不可靠，
-        # 需要清除所有旧行并重置计数
+            term_width = 80
+        
+        # 检测终端宽度变化
         if self._last_term_width != 0 and self._last_term_width != term_width:
             n = self._last_display_lines
             if n > 0:
@@ -3171,71 +3187,58 @@ class AudioPlayer:
                 sys.stdout.flush()
             self._last_display_lines = 0
         self._last_term_width = term_width
-
-        # 动态调整 bar 长度，保证整行显示宽度不超过 term_width
-        # 避免 emoji 占 2 列但 len() 算 1 导致截断后实际宽度仍超限而自动换行
+        
+        # 动态调整 bar 长度
         prefix = f"{status} |"
         suffix = f"| {current_time}/{total_time}"
         prefix_w = _display_width(prefix)
         suffix_w = _display_width(suffix)
-        # bar 可用显示宽度，至少留 10 列给进度条
-        available_for_bar = term_width - prefix_w - suffix_w
+        safe_width = max(20, term_width - 1)
+        available_for_bar = safe_width - prefix_w - suffix_w
         bar_length = max(10, min(50, available_for_bar))
         percent = self.current_position / self.total_duration if self.total_duration > 0 else 0
         filled = int(bar_length * percent)
         bar = '█' * filled + '─' * (bar_length - filled)
         line1 = f"{prefix}{bar}{suffix}"
-
-        # 收集本次要输出的所有行（按显示宽度截断，避免自动换行导致行数错乱）
-        # 关键：每行截断到 term_width - 1，留 1 列余量，防止内容恰好填满一行时
-        # 某些终端自动换行（光标到行尾再写下一字符会换行）
-        safe_width = term_width - 1
+        
         lines = [_truncate_to_width(line1, safe_width)]
-
+        
         # 可视化器频谱
         if self.visualizer_enabled:
             viz_lines = self.visualizer.render().split('\n')
-            for line in viz_lines[-4:]:  # 只显示最后4行
+            for line in viz_lines[-4:]:
                 lines.append(_truncate_to_width("  " + line, safe_width))
-
-        # 歌词当前行：加粗 + 青色，居中显示
+        
+        # 歌词当前行
         if self.lyrics.enabled and self.lyrics.lyrics:
             current_time_sec = self.current_position / 1000
             current_lyric, _ = self.lyrics.get_lyrics_at_time(current_time_sec)
             if current_lyric:
-                # 先截断歌词纯文本到安全宽度，再加 ANSI 码
-                # ANSI 码（\033[1;36m / \033[0m）不占显示宽度，无需计入
                 truncated = _truncate_to_width(current_lyric, safe_width)
                 lyric_w = _display_width(truncated)
                 padding = max(0, (safe_width - lyric_w) // 2)
                 lines.append(' ' * padding + f"\033[1;36m{truncated}\033[0m")
-
-        # 清除上次输出的所有行（避免终端残留）
-        # 关键：必须确保每行实际显示宽度 <= term_width，否则自动换行会让行数对不上
+        
+        # 清除上次输出
         n = self._last_display_lines
         if n > 0:
-            # 光标上移到上次输出的第一行
             if n > 1:
                 sys.stdout.write(f"\033[{n - 1}A")
-            # 逐行清除：回行首 + 清除整行
             for i in range(n):
                 sys.stdout.write("\r\033[2K")
                 if i < n - 1:
-                    sys.stdout.write("\033[1B")  # 下移一行（最后一行不下移）
-            # 清屏循环结束后光标在第 n 行行首，需上移回第 1 行才能原地刷新
-            # 否则新内容会从第 n 行开始写入，每次刷新内容向下移动 n-1 行
+                    sys.stdout.write("\033[1B")
             if n > 1:
                 sys.stdout.write(f"\033[{n - 1}A")
-
-        # 输出新内容：每行末尾用 \033[K 清除行尾后换行，避免上一行长字符残留
+        
+        # 输出新内容
         for i, line in enumerate(lines):
             sys.stdout.write(line)
             if i < len(lines) - 1:
-                sys.stdout.write("\033[K\n")  # 清除行尾 + 换行
-        sys.stdout.write("\033[K")  # 最后一行清除行尾，不换行（光标停在末尾）
+                sys.stdout.write("\033[K\n")
+        sys.stdout.write("\033[K")
         sys.stdout.flush()
-
-        # 记录本次行数，供下次清除
+        
         self._last_display_lines = len(lines)
     
     def format_time(self, ms):
@@ -3521,7 +3524,7 @@ class AudioPlayer:
                     time.sleep(0.05)
                     if not self.is_playing and not self.is_paused:
                         break
-            else:
+            elif sys.stdin.isatty():
                 import select
                 import termios
                 import tty
@@ -3648,8 +3651,14 @@ class AudioPlayer:
                                     tty.setraw(fd)
                 finally:
                     termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            else:
+                # 非交互式终端：不监听键盘输入，仅等待播放结束
+                while self.is_playing or self.is_paused:
+                    time.sleep(0.1)
         except Exception as e:
-            print(f"\n控制监听错误: {e}")
+            # 仅记录非 TTY 相关异常，避免干扰正常播放流程
+            if sys.stdin.isatty():
+                print(f"\n控制监听错误: {e}")
 
         # 退出前清除进度显示，避免残留
         if self._last_display_lines > 0:
