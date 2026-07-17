@@ -70,7 +70,7 @@ import unicodedata
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 
-__version__ = "2.11.15"
+__version__ = "2.11.16"
 
 
 def _display_width(s: str) -> int:
@@ -7405,6 +7405,22 @@ def play_playlist(playlist: Playlist, config: Config, loop: str = 'none', explic
 
 # --- GitHub 自动更新检查 ---
 GITHUB_REPO = "diaoyunxi/media-on-terminal"
+# 支持通过环境变量配置 GitHub 镜像/代理站，格式如 https://gh.llkk.cc
+# 使用方式: export GITHUB_MIRROR=https://gh.llkk.cc
+# 自动更新、版本检查等所有 GitHub 相关请求都会走该镜像
+_GITHUB_MIRROR = os.environ.get('GITHUB_MIRROR', '').strip().rstrip('/')
+
+
+def _github_url(url: str) -> str:
+    """通过 GITHUB_MIRROR 环境变量转发 GitHub 相关 URL
+
+    若环境变量未设置，返回原始 URL；
+    若已设置，将原始完整 URL 拼接在镜像站后，如：
+      https://gh.llkk.cc/https://api.github.com/repos/.../releases/latest
+    """
+    if not _GITHUB_MIRROR or url.startswith(_GITHUB_MIRROR):
+        return url
+    return f"{_GITHUB_MIRROR}/{url}"
 
 def _fetch_latest_version_github():
     """从 GitHub 获取最新版本号及 Release 信息（优先 Releases，回退 Tags）
@@ -7437,22 +7453,30 @@ def _fetch_latest_version_github():
         ts = cache.get("ts", 0)
         if now - ts < CACHE_TTL:
             # 缓存有效期内，直接返回缓存结果，不请求 API
-            return cache.get("tag"), cache.get("release_url"), cache.get("assets", []) or []
+            # 对缓存中的 URL 也应用镜像（兼容旧缓存未镜像的情况）
+            cached_assets = cache.get("assets", []) or []
+            for a in cached_assets:
+                a["url"] = _github_url(a.get("url", ""))
+            return (
+                cache.get("tag"),
+                _github_url(cache.get("release_url", "")),
+                cached_assets,
+            )
 
     # --- 尝试 Releases API（含 assets 下载链接）---
     result = None
     try:
-        url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+        url = _github_url(f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest")
         req = urllib.request.Request(url, headers={"User-Agent": "mp-player"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
             tag = data.get("tag_name")
-            html_url = data.get("html_url")
+            html_url = _github_url(data.get("html_url", ""))
             assets = []
             for a in data.get("assets", []) or []:
                 assets.append({
                     "name": a.get("name", ""),
-                    "url": a.get("browser_download_url", ""),
+                    "url": _github_url(a.get("browser_download_url", "")),
                     "size": a.get("size", 0),
                 })
             if tag:
@@ -7463,13 +7487,13 @@ def _fetch_latest_version_github():
     # --- 回退到 Tags API（无 assets 信息）---
     if result is None:
         try:
-            url = f"https://api.github.com/repos/{GITHUB_REPO}/tags"
+            url = _github_url(f"https://api.github.com/repos/{GITHUB_REPO}/tags")
             req = urllib.request.Request(url, headers={"User-Agent": "mp-player"})
             with urllib.request.urlopen(req, timeout=10) as resp:
                 data = json.loads(resp.read().decode())
                 if data:
                     tag = data[0].get("name")
-                    result = (tag, f"https://github.com/{GITHUB_REPO}/releases/tag/{tag}", [])
+                    result = (tag, _github_url(f"https://github.com/{GITHUB_REPO}/releases/tag/{tag}"), [])
         except Exception:
             pass
 
@@ -7492,7 +7516,14 @@ def _fetch_latest_version_github():
 
     # 请求失败：用过期缓存兜底（即便过期也比无返回好）
     if cache and isinstance(cache, dict) and cache.get("tag"):
-        return cache.get("tag"), cache.get("release_url"), cache.get("assets", []) or []
+        cached_assets = cache.get("assets", []) or []
+        for a in cached_assets:
+            a["url"] = _github_url(a.get("url", ""))
+        return (
+            cache.get("tag"),
+            _github_url(cache.get("release_url", "")),
+            cached_assets,
+        )
 
     return None, None, []
 
@@ -7761,7 +7792,7 @@ def check_for_update():
         # 策略2：raw.githubusercontent.com 下载 main 分支 mp.py（回退）
         if not updated:
             try:
-                raw_url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/mp.py"
+                raw_url = _github_url(f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/mp.py")
                 print(f"  下载 main 分支 mp.py ...")
                 req = urllib.request.Request(raw_url, headers={"User-Agent": "mp-player"})
                 with urllib.request.urlopen(req, timeout=30) as resp:
