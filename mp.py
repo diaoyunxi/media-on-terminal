@@ -70,7 +70,7 @@ import unicodedata
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 
-__version__ = "2.11.17"
+__version__ = "2.11.18"
 
 
 def _display_width(s: str) -> int:
@@ -7227,6 +7227,8 @@ def show_help():
 
 选项:
     -h, --help          显示此帮助信息
+    -V, --version       显示当前版本号
+    --update            检查并更新到最新版本
     -i, --info          显示媒体文件详细信息
     -p, --playlist      播放列表模式
     -s, --shuffle       随机播放
@@ -7779,7 +7781,7 @@ def _verify_download_sha256(content, checksum_url, asset_name=""):
         return True
 
 
-def check_for_update():
+def check_for_update(force: bool = False):
     """检查 GitHub 上是否有新版本，如有则询问用户是否更新
 
     更新策略（按优先级）：
@@ -7789,6 +7791,9 @@ def check_for_update():
 
     所有下载内容在替换本地文件前均通过 py_compile 语法校验，
     避免下载到损坏/不完整的文件覆盖可用版本（bug #17）。
+
+    :param force: 为 True 时即使已是最新版也显示版本信息（用于 --update 模式）
+    :return: True 表示已更新并退出程序；False 表示未更新或检查失败
     """
     import urllib.request
     import urllib.error
@@ -7798,10 +7803,16 @@ def check_for_update():
     try:
         latest, release_url, assets = _fetch_latest_version_github()
         if not latest:
-            return
+            if force:
+                print(f"当前版本: v{__version__}")
+                print("检查更新失败：无法获取远程版本信息")
+            return False
 
         if _compare_versions(latest, __version__) <= 0:
-            return
+            if force:
+                print(f"当前版本: v{__version__}")
+                print("已是最新版本")
+            return False
 
         print(f"\n{'='*50}")
         print(f"  发现新版本！")
@@ -7943,9 +7954,12 @@ def check_for_update():
             sys.exit(0)
         else:
             print(f"自动更新失败，请手动访问 {release_url} 下载最新版本")
-    except Exception:
+            return False
+    except Exception as e:
         # 更新检查失败不应影响正常使用
-        pass
+        if force:
+            print(f"检查更新失败: {e}")
+        return False
 
 
 def _download_song_interactive(config: 'Config', keyword: str, output_dir: str = None):
@@ -8260,6 +8274,8 @@ def main():
         add_help=False
     )
     parser.add_argument('-h', '--help', action='store_true', help='显示帮助信息')
+    parser.add_argument('-V', '--version', action='store_true', help='显示当前版本号')
+    parser.add_argument('--update', action='store_true', help='检查并更新到最新版本')
     parser.add_argument('-i', '--info', action='store_true', help='显示媒体信息')
     parser.add_argument('-p', '--playlist', action='store_true', help='播放列表模式')
     parser.add_argument('-s', '--shuffle', action='store_true', help='随机播放')
@@ -8414,11 +8430,21 @@ def main():
     parser.add_argument('files', nargs='*', help='媒体文件路径')
     
     args = parser.parse_args()
-    
+
     if args.help:
         show_help()
         sys.exit(0)
-    
+
+    if args.version:
+        print(f"mp {__version__}")
+        sys.exit(0)
+
+    if args.update:
+        print(f"当前版本: v{__version__}")
+        print("正在检查更新...")
+        check_for_update(force=True)
+        sys.exit(0)
+
     # 加载配置
     config = Config()
     
