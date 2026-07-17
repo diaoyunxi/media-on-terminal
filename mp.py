@@ -3664,6 +3664,13 @@ class AudioPlayer:
             self._last_display_lines = 0
             print()
 
+        # 单曲循环：自然播放结束时（非用户主动退出）重新播放
+        if self.loop_mode == 'single':
+            self.stop()
+            print("\n🔁 单曲循环，重新播放...")
+            self.run()
+            return
+
         self.stop()
         print("\n播放结束")
     
@@ -3951,6 +3958,12 @@ class VideoPlayer:
                 # 读取一帧
                 frame_data = self.ffmpeg_process.stdout.read(frame_size)
                 if len(frame_data) < frame_size:
+                    # 判断是否自然结束（非用户主动退出）
+                    if self.loop_mode == 'single':
+                        self.stop()
+                        print("\n🔁 单曲循环，重新播放...")
+                        self.run()
+                        return
                     break
                 
                 # 检查用户输入
@@ -3962,6 +3975,13 @@ class VideoPlayer:
                             self._toggle_pause()
                         elif key in (b'q', b'Q'):
                             break
+                        elif key in (b'l', b'L'):
+                            modes = ['none', 'single', 'all']
+                            current_idx = modes.index(self.loop_mode)
+                            self.loop_mode = modes[(current_idx + 1) % len(modes)]
+                            self.config.set('loop_mode', self.loop_mode)
+                            mode_names = {'none': '关闭', 'single': '🔁 单曲', 'all': '🔄 列表'}
+                            print(f"\n循环模式: {mode_names.get(self.loop_mode, self.loop_mode)}")
                         elif key in (b'i', b'I'):
                             info = MediaInfo.get_info(self.file_path)
                             MediaInfo.display_info(info)
@@ -3972,6 +3992,13 @@ class VideoPlayer:
                             self._toggle_pause()
                         elif ch in ('q', 'Q', '\x03'):
                             break
+                        elif ch in ('l', 'L'):
+                            modes = ['none', 'single', 'all']
+                            current_idx = modes.index(self.loop_mode)
+                            self.loop_mode = modes[(current_idx + 1) % len(modes)]
+                            self.config.set('loop_mode', self.loop_mode)
+                            mode_names = {'none': '关闭', 'single': '🔁 单曲', 'all': '🔄 列表'}
+                            print(f"\n循环模式: {mode_names.get(self.loop_mode, self.loop_mode)}")
                         elif ch in ('i', 'I'):
                             info = MediaInfo.get_info(self.file_path)
                             MediaInfo.display_info(info)
@@ -7303,6 +7330,7 @@ def play_playlist(playlist: Playlist, config: Config, loop: str = 'none'):
         
         if file_ext in video_extensions:
             player = VideoPlayer(current_file, config)
+            player.loop_mode = loop
         else:
             player = AudioPlayer(current_file, config)
             player.loop_mode = loop
@@ -7329,7 +7357,7 @@ def play_playlist(playlist: Playlist, config: Config, loop: str = 'none'):
         # 获取下一个文件
         next_file = playlist.next()
         if next_file is None:
-            if loop == 'all':
+            if player.loop_mode == 'all':
                 playlist.current_index = 0
                 current_file = playlist.get_current()
             else:
