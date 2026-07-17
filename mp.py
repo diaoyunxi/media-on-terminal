@@ -70,7 +70,7 @@ import unicodedata
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 
-__version__ = "2.11.12"
+__version__ = "2.11.13"
 
 
 def _display_width(s: str) -> int:
@@ -79,6 +79,9 @@ def _display_width(s: str) -> int:
     emoji 和宽字符（中日韩全角）算 2 列，ASCII 算 1 列。
     用于解决含 emoji 的状态行被 [:term_width] 按字符数截断后，
     实际显示宽度仍超过终端宽度导致自动换行的问题。
+
+    修正：对 Block Elements (U+2580-U+259F)、Geometric Shapes (U+25A0-U+25FF)
+    等终端常显示为双宽的符号，统一按 2 列计算，避免截断不足导致换行刷屏。
     """
     width = 0
     for ch in s:
@@ -86,9 +89,16 @@ def _display_width(s: str) -> int:
         if code < 0x80:
             width += 1
         elif code < 0x3000:
-            # 拉丁扩展、组合字符等按 1 处理（近似）
             w = unicodedata.east_asian_width(ch)
-            width += 2 if w in ('W', 'F') else 1
+            # 保守策略：只有明确的半角窄字符算 1 列；
+            # 全角(W)、全宽(F)、模糊(A)以及符号块中的字符统一算 2 列
+            if w in ('W', 'F', 'A'):
+                width += 2
+            elif 0x2580 <= code <= 0x259F or 0x25A0 <= code <= 0x25FF:
+                # Block Elements 和 Geometric Shapes 常显示为双宽
+                width += 2
+            else:
+                width += 1
         else:
             # CJK 区段、emoji 等按 2 列处理
             width += 2
@@ -105,7 +115,12 @@ def _truncate_to_width(s: str, max_width: int) -> str:
             ch_w = 1
         elif code < 0x3000:
             w = unicodedata.east_asian_width(ch)
-            ch_w = 2 if w in ('W', 'F') else 1
+            if w in ('W', 'F', 'A'):
+                ch_w = 2
+            elif 0x2580 <= code <= 0x259F or 0x25A0 <= code <= 0x25FF:
+                ch_w = 2
+            else:
+                ch_w = 1
         else:
             ch_w = 2
         if width + ch_w > max_width:
@@ -3187,9 +3202,10 @@ class AudioPlayer:
         line1 = f"{prefix}{bar}{suffix}"
 
         # 收集本次要输出的所有行（按显示宽度截断，避免自动换行导致行数错乱）
-        # 关键：每行截断到 term_width - 1，留 1 列余量，防止内容恰好填满一行时
+        # 关键：每行截断到 term_width - 3，留 3 列余量，防止内容恰好填满一行时
         # 某些终端自动换行（光标到行尾再写下一字符会换行）
-        safe_width = term_width - 1
+        # 同时给 _display_width 的估算误差留出裕量
+        safe_width = max(10, term_width - 3)
         lines = [_truncate_to_width(line1, safe_width)]
 
         # 可视化器频谱
@@ -3228,6 +3244,20 @@ class AudioPlayer:
                 sys.stdout.write(f"\033[{n - 1}A")
 
         # 输出新内容：每行末尾用 \033[K 清除行尾后换行，避免上一行长字符残留
+        # 单行情况：使用 \r 强制回到行首 + 空格填充覆盖旧内容，最可靠
+        if len(lines) == 1:
+            output = f"\r{lines[0]}"
+            sys.stdout.write(output)
+            # 用空格填充到 term_width，确保旧内容被完全覆盖
+            line_w = _display_width(lines[0])
+            if line_w < term_width:
+                sys.stdout.write(' ' * (term_width - line_w))
+            sys.stdout.write("\033[K")  # 清除行尾
+            sys.stdout.flush()
+            self._last_display_lines = 1
+            return
+
+        # 多行情况：保持原有的 ANSI 清除逻辑
         for i, line in enumerate(lines):
             sys.stdout.write(line)
             if i < len(lines) - 1:
