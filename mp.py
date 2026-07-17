@@ -70,7 +70,7 @@ import unicodedata
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 
-__version__ = "2.11.13"
+__version__ = "2.11.14"
 
 
 def _display_width(s: str) -> int:
@@ -3077,19 +3077,30 @@ class AudioPlayer:
             if self.process and self.process.poll() is not None:
                 self.is_playing = False
                 # 清除最后的进度显示并换行，避免残留
-                if self._last_display_lines > 0:
-                    n = self._last_display_lines
-                    if n > 1:
-                        sys.stdout.write(f"\033[{n - 1}A")
-                    for i in range(n):
-                        sys.stdout.write("\r\033[2K")
-                        if i < n - 1:
-                            sys.stdout.write("\033[1B")
-                    sys.stdout.flush()
-                    self._last_display_lines = 0
+                self._clear_progress_display()
                 print()
                 break
-    
+
+    def _clear_progress_display(self):
+        """清除当前进度显示区域，使光标回到第一行位置。
+        适配 display_progress 的多行输出格式（最后一行也换行，光标在下一行行首）。
+        """
+        n = self._last_display_lines
+        if n <= 0:
+            return
+        # 光标当前在最后一行的下一行行首，上移 n 行到第一行行首
+        sys.stdout.write(f"\033[{n}A")
+        for i in range(n):
+            sys.stdout.write("\r\033[2K")
+            if i < n - 1:
+                sys.stdout.write("\033[1B")
+        # 清除完毕后光标在第 n 行行首，上移回第 1 行
+        if n > 1:
+            sys.stdout.write(f"\033[{n - 1}A")
+        sys.stdout.write("\033[J")
+        sys.stdout.flush()
+        self._last_display_lines = 0
+
     def display_progress(self):
         """显示播放进度条"""
         bar_length = 50
@@ -3188,18 +3199,26 @@ class AudioPlayer:
         self._last_term_width = term_width
 
         # 动态调整 bar 长度，保证整行显示宽度不超过 term_width
-        # 避免 emoji 占 2 列但 len() 算 1 导致截断后实际宽度仍超限而自动换行
+        # 注意：█ / ─ 等方块字符显示宽度为 2 列，所以 bar_length 是字符数，
+        # 实际显示宽度 = bar_length * 2，必须用 available_for_bar // 2 来计算字符数
         prefix = f"{status} |"
         suffix = f"| {current_time}/{total_time}"
         prefix_w = _display_width(prefix)
         suffix_w = _display_width(suffix)
-        # bar 可用显示宽度，至少留 10 列给进度条
+        # bar 可用显示宽度（列），至少留 10 列给进度条
         available_for_bar = term_width - prefix_w - suffix_w
-        bar_length = max(10, min(50, available_for_bar))
+        # bar 字符数 = 可用列数 // 2（每个方块字符占 2 列），最少 5 格，最多 60 格
+        bar_length = max(5, min(60, available_for_bar // 2))
         percent = self.current_position / self.total_duration if self.total_duration > 0 else 0
         filled = int(bar_length * percent)
         bar = '█' * filled + '─' * (bar_length - filled)
         line1 = f"{prefix}{bar}{suffix}"
+        # 二次校验：如果实际显示宽度仍超限，再逐格缩短 bar
+        while bar_length > 3 and _display_width(line1) > term_width - 2:
+            bar_length -= 1
+            filled = int(bar_length * percent)
+            bar = '█' * filled + '─' * (bar_length - filled)
+            line1 = f"{prefix}{bar}{suffix}"
 
         # 收集本次要输出的所有行（按显示宽度截断，避免自动换行导致行数错乱）
         # 关键：每行截断到 term_width - 3，留 3 列余量，防止内容恰好填满一行时
@@ -3228,22 +3247,8 @@ class AudioPlayer:
 
         # 清除上次输出的所有行（避免终端残留）
         # 关键：必须确保每行实际显示宽度 <= term_width，否则自动换行会让行数对不上
-        n = self._last_display_lines
-        if n > 0:
-            # 光标上移到上次输出的第一行
-            if n > 1:
-                sys.stdout.write(f"\033[{n - 1}A")
-            # 逐行清除：回行首 + 清除整行
-            for i in range(n):
-                sys.stdout.write("\r\033[2K")
-                if i < n - 1:
-                    sys.stdout.write("\033[1B")  # 下移一行（最后一行不下移）
-            # 清屏循环结束后光标在第 n 行行首，需上移回第 1 行才能原地刷新
-            # 否则新内容会从第 n 行开始写入，每次刷新内容向下移动 n-1 行
-            if n > 1:
-                sys.stdout.write(f"\033[{n - 1}A")
+        self._clear_progress_display()
 
-        # 输出新内容：每行末尾用 \033[K 清除行尾后换行，避免上一行长字符残留
         # 单行情况：使用 \r 强制回到行首 + 空格填充覆盖旧内容，最可靠
         if len(lines) == 1:
             output = f"\r{lines[0]}"
@@ -3257,12 +3262,11 @@ class AudioPlayer:
             self._last_display_lines = 1
             return
 
-        # 多行情况：保持原有的 ANSI 清除逻辑
+        # 多行情况：每行输出后换行，最后一行也换行（光标停在最后一行的下一行行首）
+        # 这样下次刷新时，光标位置 = 上次输出最后一行的下一行，上移 n-1 行即回到第一行
         for i, line in enumerate(lines):
             sys.stdout.write(line)
-            if i < len(lines) - 1:
-                sys.stdout.write("\033[K\n")  # 清除行尾 + 换行
-        sys.stdout.write("\033[K")  # 最后一行清除行尾，不换行（光标停在末尾）
+            sys.stdout.write("\033[K\n")  # 清除行尾 + 换行（最后一行也换行）
         sys.stdout.flush()
 
         # 记录本次行数，供下次清除
@@ -3527,16 +3531,7 @@ class AudioPlayer:
                             self.play_from_position(self.current_position / 1000)
                         elif key == b'N':
                             # 清除进度显示，避免和交互界面叠加残留
-                            if self._last_display_lines > 0:
-                                n = self._last_display_lines
-                                if n > 1:
-                                    sys.stdout.write(f"\033[{n - 1}A")
-                                for i in range(n):
-                                    sys.stdout.write("\r\033[2K")
-                                    if i < n - 1:
-                                        sys.stdout.write("\033[1B")
-                                sys.stdout.flush()
-                                self._last_display_lines = 0
+                            self._clear_progress_display()
                             self._manual_search_lyrics_interactive()
                         elif key == b'\xe0':
                             key2 = msvcrt.getch()
@@ -3660,16 +3655,7 @@ class AudioPlayer:
                                 self.play_from_position(self.current_position / 1000)
                             elif ch == 'N':
                                 # 先清除进度显示，避免和交互界面叠加残留
-                                if self._last_display_lines > 0:
-                                    n = self._last_display_lines
-                                    if n > 1:
-                                        sys.stdout.write(f"\033[{n - 1}A")
-                                    for i in range(n):
-                                        sys.stdout.write("\r\033[2K")
-                                        if i < n - 1:
-                                            sys.stdout.write("\033[1B")
-                                    sys.stdout.flush()
-                                    self._last_display_lines = 0
+                                self._clear_progress_display()
                                 # 临时恢复终端到正常模式，否则 input() 在 raw 模式下回车不提交会卡死
                                 termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
                                 try:
@@ -3682,17 +3668,8 @@ class AudioPlayer:
             print(f"\n控制监听错误: {e}")
 
         # 退出前清除进度显示，避免残留
-        if self._last_display_lines > 0:
-            n = self._last_display_lines
-            if n > 1:
-                sys.stdout.write(f"\033[{n - 1}A")
-            for i in range(n):
-                sys.stdout.write("\r\033[2K")
-                if i < n - 1:
-                    sys.stdout.write("\033[1B")
-            sys.stdout.flush()
-            self._last_display_lines = 0
-            print()
+        self._clear_progress_display()
+        print()
 
         # 单曲循环：自然播放结束时（非用户主动退出）重新播放
         if self.loop_mode == 'single':
