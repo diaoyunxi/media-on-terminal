@@ -70,7 +70,7 @@ import unicodedata
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 
-__version__ = "2.11.14"
+__version__ = "2.11.15"
 
 
 def _display_width(s: str) -> int:
@@ -80,22 +80,32 @@ def _display_width(s: str) -> int:
     用于解决含 emoji 的状态行被 [:term_width] 按字符数截断后，
     实际显示宽度仍超过终端宽度导致自动换行的问题。
 
-    修正：对 Block Elements (U+2580-U+259F)、Geometric Shapes (U+25A0-U+25FF)
-    等终端常显示为双宽的符号，统一按 2 列计算，避免截断不足导致换行刷屏。
+    修正：对 Block Elements (U+2580-U+259F)、Geometric Shapes (U+25A0-U+25FF)、
+    Miscellaneous Technical (U+2300-U+23FF)、Miscellaneous Symbols (U+2600-U+26FF)、
+    Dingbats (U+2700-U+27BF) 等终端常显示为双宽的符号统一按 2 列计算；
+    变体选择器 (U+FE00-U+FE0F) 按 0 列计算，避免 emoji+变体组合宽度多算。
     """
     width = 0
     for ch in s:
         code = ord(ch)
         if code < 0x80:
             width += 1
+        elif 0xFE00 <= code <= 0xFE0F:
+            # 变体选择器，零宽
+            width += 0
         elif code < 0x3000:
             w = unicodedata.east_asian_width(ch)
-            # 保守策略：只有明确的半角窄字符算 1 列；
-            # 全角(W)、全宽(F)、模糊(A)以及符号块中的字符统一算 2 列
+            # 全角(W)、全宽(F)、模糊(A)
             if w in ('W', 'F', 'A'):
                 width += 2
             elif 0x2580 <= code <= 0x259F or 0x25A0 <= code <= 0x25FF:
-                # Block Elements 和 Geometric Shapes 常显示为双宽
+                # Block Elements 和 Geometric Shapes
+                width += 2
+            elif (0x2300 <= code <= 0x23FF or
+                  0x2600 <= code <= 0x26FF or
+                  0x2700 <= code <= 0x27BF):
+                # Miscellaneous Technical / Symbols / Dingbats
+                # 包含 ⏸ ⏹ ⏺ ⏏ ⚡ ★ ✨ ❤ 等常用 emoji
                 width += 2
             else:
                 width += 1
@@ -113,11 +123,17 @@ def _truncate_to_width(s: str, max_width: int) -> str:
         code = ord(ch)
         if code < 0x80:
             ch_w = 1
+        elif 0xFE00 <= code <= 0xFE0F:
+            ch_w = 0
         elif code < 0x3000:
             w = unicodedata.east_asian_width(ch)
             if w in ('W', 'F', 'A'):
                 ch_w = 2
             elif 0x2580 <= code <= 0x259F or 0x25A0 <= code <= 0x25FF:
+                ch_w = 2
+            elif (0x2300 <= code <= 0x23FF or
+                  0x2600 <= code <= 0x26FF or
+                  0x2700 <= code <= 0x27BF):
                 ch_w = 2
             else:
                 ch_w = 1
@@ -3088,15 +3104,21 @@ class AudioPlayer:
         n = self._last_display_lines
         if n <= 0:
             return
-        # 光标当前在最后一行的下一行行首，上移 n 行到第一行行首
+        # 单行输出时 display_progress 不换行，光标停在当前行末尾，不能上移
+        if n == 1:
+            sys.stdout.write("\r\033[2K")
+            sys.stdout.write("\033[J")
+            sys.stdout.flush()
+            self._last_display_lines = 0
+            return
+        # 多行输出时最后一行也换行了，光标在最后一行的下一行行首，上移 n 行到第一行行首
         sys.stdout.write(f"\033[{n}A")
         for i in range(n):
             sys.stdout.write("\r\033[2K")
             if i < n - 1:
                 sys.stdout.write("\033[1B")
         # 清除完毕后光标在第 n 行行首，上移回第 1 行
-        if n > 1:
-            sys.stdout.write(f"\033[{n - 1}A")
+        sys.stdout.write(f"\033[{n - 1}A")
         sys.stdout.write("\033[J")
         sys.stdout.flush()
         self._last_display_lines = 0
@@ -7322,8 +7344,14 @@ def show_help():
     print(help_text)
 
 
-def play_playlist(playlist: Playlist, config: Config, loop: str = 'none'):
-    """播放播放列表"""
+def play_playlist(playlist: Playlist, config: Config, loop: str = 'none', explicit_loop: bool = False):
+    """播放播放列表
+
+    :param playlist: 播放列表
+    :param config: 配置对象
+    :param loop: 循环模式，仅当 explicit_loop=True 时覆盖 player 从配置读取的值
+    :param explicit_loop: 是否为命令行显式指定的 --loop 参数
+    """
     if not playlist.files:
         print("播放列表为空")
         return
@@ -7337,9 +7365,11 @@ def play_playlist(playlist: Playlist, config: Config, loop: str = 'none'):
         
         if file_ext in video_extensions:
             player = VideoPlayer(current_file, config)
-            player.loop_mode = loop
         else:
             player = AudioPlayer(current_file, config)
+        # 仅命令行显式指定 --loop 时才覆盖 player 从配置文件读取的 loop_mode
+        # 播放中按 [l] 切换的模式已通过 config.set 持久化，列表下一曲会自动继承
+        if explicit_loop:
             player.loop_mode = loop
         
         # 设置信号处理
@@ -7963,7 +7993,7 @@ def main():
         if args.shuffle:
             playlist.shuffle()
         
-        play_playlist(playlist, config, args.loop or config.get('loop_mode', 'none'))
+        play_playlist(playlist, config, args.loop, explicit_loop=bool(args.loop))
         sys.exit(0)
     
     # 处理历史记录
@@ -8072,7 +8102,7 @@ def main():
                 playlist.add_file(f)
             if args.shuffle:
                 playlist.shuffle()
-            play_playlist(playlist, config, args.loop or config.get('loop_mode', 'none'))
+            play_playlist(playlist, config, args.loop, explicit_loop=bool(args.loop))
             sys.exit(0)
 
     # 处理噪声生成器
@@ -8184,7 +8214,7 @@ def main():
             playlist.add_file(f)
         if args.shuffle:
             playlist.shuffle()
-        play_playlist(playlist, config, args.loop or config.get('loop_mode', 'none'))
+        play_playlist(playlist, config, args.loop, explicit_loop=bool(args.loop))
         sys.exit(0)
 
     # 媒体库扫描
@@ -8921,7 +8951,7 @@ def main():
         if args.shuffle:
             playlist.shuffle()
         
-        play_playlist(playlist, config, args.loop or config.get('loop_mode', 'none'))
+        play_playlist(playlist, config, args.loop, explicit_loop=bool(args.loop))
     else:
         # 单文件模式
         file_ext = first_path.suffix.lower()
