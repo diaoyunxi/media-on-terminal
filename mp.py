@@ -70,7 +70,7 @@ import unicodedata
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 
-__version__ = "2.11.16"
+__version__ = "2.11.17"
 
 
 def _display_width(s: str) -> int:
@@ -2566,6 +2566,113 @@ class OnlineLyricsFetcher:
     def cached_candidates(self) -> List[Tuple[str, str, str, str]]:
         """已缓存的候选列表（只读视图）"""
         return list(self._cached_candidates)
+
+    # ===== 歌曲播放/下载 URL 获取 =====
+
+    def _qq_song_url(self, songmid: str) -> Optional[str]:
+        """QQ音乐获取歌曲播放 URL（优先高音质）
+
+        返回: 播放 URL 字符串，失败返回 None
+        """
+        try:
+            # 使用 QQ音乐 vkey 接口获取播放地址
+            params = json.dumps({
+                "req_0": {
+                    "module": "vkey.GetVkeyServer",
+                    "method": "CgiGetVkey",
+                    "param": {
+                        "guid": "0",
+                        "songmid": [songmid],
+                        "songtype": [0],
+                        "uin": "0",
+                        "loginflag": 0,
+                        "platform": "20",
+                    }
+                }
+            })
+            url = f"https://u.y.qq.com/cgi-bin/musicu.fcg?data={urllib.parse.quote(params)}"
+            text = self._http_get(url, extra_headers={"Referer": "https://y.qq.com/"})
+            data = json.loads(text)
+            midurlinfo = data.get("req_0", {}).get("data", {}).get("midurlinfo", [])
+            if midurlinfo:
+                purl = midurlinfo[0].get("purl") or ""
+                if purl:
+                    # 拼接完整 URL（某些 CDN 需加协议头）
+                    if purl.startswith("http"):
+                        return purl
+                    return f"http://dl.stream.qqmusic.qq.com/{purl}"
+            return None
+        except Exception:
+            return None
+
+    def _netease_song_url(self, song_id: int) -> Optional[str]:
+        """网易云获取歌曲播放 URL（优先 320kbps）
+
+        返回: 播放 URL 字符串，失败返回 None
+        """
+        try:
+            url = f"https://music.163.com/api/song/enhance/player/url?id={song_id}&ids=[{song_id}]&br=320000"
+            text = self._http_get(url)
+            data = json.loads(text)
+            songs = data.get("data", []) or []
+            if songs:
+                dl_url = songs[0].get("url") or ""
+                if dl_url:
+                    return dl_url
+            return None
+        except Exception:
+            return None
+
+    def _kugou_song_url(self, hash_id: str) -> Optional[str]:
+        """酷狗获取歌曲播放 URL
+
+        返回: 播放 URL 字符串，失败返回 None
+        """
+        try:
+            url = f"http://m.kugou.com/app/i/getSongInfo.php?cmd=playInfo&hash={hash_id}"
+            text = self._http_get(url)
+            data = json.loads(text)
+            dl_url = data.get("url") or data.get("playUrl") or ""
+            if dl_url:
+                return dl_url
+            return None
+        except Exception:
+            return None
+
+    def fetch_song_url_by_candidate(self, candidate: Tuple[str, str, str, str]) -> Optional[str]:
+        """根据候选获取歌曲播放 URL
+
+        参数:
+            candidate: (song_name, artist, source, id_or_mid)
+
+        返回:
+            URL 字符串，失败返回 None
+        """
+        name, artist, source, ident = candidate
+        try:
+            if source == "qq":
+                return self._qq_song_url(ident)
+            elif source == "netease":
+                return self._netease_song_url(int(ident))
+            elif source == "kugou":
+                return self._kugou_song_url(ident)
+        except Exception:
+            return None
+        return None
+
+    def fetch_song_url_by_index(self, index: int) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+        """根据缓存候选索引获取歌曲播放 URL
+
+        返回:
+            (url, source, song_name) 三元组，失败返回 (None, None, None)
+        """
+        if not self._cached_candidates or index < 0 or index >= len(self._cached_candidates):
+            return None, None, None
+        cand = self._cached_candidates[index]
+        url = self.fetch_song_url_by_candidate(cand)
+        if url:
+            return url, cand[2], f"{cand[0]} - {cand[1] or '未知'}"
+        return None, None, None
 
 
 class AudioVisualizer:
@@ -7189,6 +7296,8 @@ def show_help():
                         或关键词字符串；支持多个目标批量下载（如 --lyrics ./*）
     --lyrics-interactive 与 --lyrics 配合：交互式选择候选歌词（仅单目标）
     --lyrics-output PATH 与 --lyrics 配合：指定输出 .lrc 路径（仅单目标，默认同名 .lrc 或 关键词.lrc）
+    --download [KEYWORD] 在线搜索并下载歌曲（含歌词）。无参数时进入交互式搜索，带关键词时自动搜索
+    --download-output DIR 与 --download 配合：指定下载输出目录（默认当前目录）
 
 支持格式:
     音频: MP3, WAV, OGG, M4A, FLAC, AAC, OPUS 等
@@ -7289,6 +7398,9 @@ def show_help():
     mp --lyrics song.mp3 --lyrics-output /tmp/浮夸.lrc  # 指定输出路径
     mp --lyrics ./*.mp3                 # 批量下载当前目录所有 mp3 的歌词
     mp --lyrics a.mp3 b.mp3 c.flac      # 批量下载多个文件
+    mp --download                        # 交互式搜索并下载歌曲（含歌词）
+    mp --download "陈奕迅 浮夸"          # 搜索并下载指定歌曲及歌词
+    mp --download --download-output ~/Music  # 下载到指定目录
 
 播放控制:
     空格键              暂停/继续
@@ -7836,6 +7948,302 @@ def check_for_update():
         pass
 
 
+def _download_song_interactive(config: 'Config', keyword: str, output_dir: str = None):
+    """交互式歌曲下载：搜索 → 试听 → 选择下载（含歌词）
+
+    流程：
+    1. 输入关键词搜索歌曲
+    2. 显示候选列表
+    3. 用户选择或输入试听
+    4. 播放歌曲，用户按键控制
+    5. 播完后选择：下载 / 换版本 / 重新搜索 / 退出
+
+    :param config: Config 对象
+    :param keyword: 搜索关键词，'__interactive__' 表示进入交互搜索
+    :param output_dir: 下载输出目录，默认当前目录
+    """
+    import subprocess
+    import select
+
+    out_dir = Path(output_dir) if output_dir else Path.cwd()
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    fetcher = OnlineLyricsFetcher(config)
+    src_name_map = {"qq": "QQ音乐", "netease": "网易云", "kugou": "酷狗"}
+
+    def _safe_filename(s: str) -> str:
+        """清理文件名中的非法字符"""
+        return re.sub(r'[\\/*?:"<>|]', '_', s)
+
+    def _download_url_to_file(url: str, save_path: Path, timeout: int = 120) -> bool:
+        """下载 URL 到文件，带进度显示"""
+        try:
+            req = urllib.request.Request(url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            })
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                total = int(resp.headers.get("Content-Length", 0))
+                written = 0
+                with open(save_path, "wb") as f:
+                    while True:
+                        chunk = resp.read(65536)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        written += len(chunk)
+                        if total:
+                            pct = written * 100 // total
+                            bar_w = 30
+                            filled = int(bar_w * pct / 100)
+                            bar = "█" * filled + "─" * (bar_w - filled)
+                            print(f"\r  下载进度: |{bar}| {pct}% ({written}/{total})", end="")
+                if total:
+                    print()
+            return True
+        except Exception as e:
+            print(f"\n  下载失败: {e}")
+            return False
+
+    def _preview_play(url: str, title: str) -> str:
+        """使用 ffplay 试听歌曲，返回用户最终选择
+
+        返回:
+            'download'  - 下载
+            'next'       - 找另一个版本
+            'quit'       - 退出
+            'search'     - 重新搜索
+        """
+        print(f"\n  试听: {title}")
+        print("  ────────────────────────────────────")
+        print("  [d] 下载此版本  [n] 换一个版本")
+        print("  [s] 重新搜索    [q] 退出")
+        print("  [空格] 暂停/继续  [←/→] 快进/快退")
+        print("  ────────────────────────────────────")
+        print("  ▶ 正在播放...")
+
+        try:
+            # 使用 ffplay 播放，-nodisp 隐藏视频窗口，-autoexit 自动退出
+            proc = subprocess.Popen(
+                ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", url],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except FileNotFoundError:
+            print("  错误: 未找到 ffplay，请安装 ffmpeg")
+            choice = input("  \n  输入选择 [d/n/s/q]: ").strip().lower()
+            return choice
+
+        # 非阻塞读取用户输入
+        import tty
+        import termios
+
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setcbreak(fd)
+            choice = ""
+            while proc.poll() is None:
+                if select.select([sys.stdin], [], [], 0.2)[0]:
+                    ch = sys.stdin.read(1)
+                    if ch in ('d', 'D', 'n', 'N', 's', 'S', 'q', 'Q', '\x03'):
+                        choice = ch.lower()
+                        proc.terminate()
+                        try:
+                            proc.wait(timeout=2)
+                        except subprocess.TimeoutExpired:
+                            proc.kill()
+                        break
+                    elif ch == ' ':
+                        try:
+                            proc.stdin.write(b' ')
+                            proc.stdin.flush()
+                        except Exception:
+                            pass
+                    elif ch == '\x1b':
+                        # 可能是 Escape 键或方向键开头
+                        # 尝试读取剩余序列（50ms 内）
+                        seq = ""
+                        try:
+                            while select.select([sys.stdin], [], [], 0.05)[0]:
+                                seq += sys.stdin.read(1)
+                        except Exception:
+                            pass
+                        if seq:
+                            # 方向键序列，转发给 ffplay
+                            try:
+                                proc.stdin.write(('\x1b' + seq).encode())
+                                proc.stdin.flush()
+                            except Exception:
+                                pass
+                        else:
+                            # 纯 Escape 键 = 退出
+                            choice = 'q'
+                            proc.terminate()
+                            try:
+                                proc.wait(timeout=2)
+                            except subprocess.TimeoutExpired:
+                                proc.kill()
+                            break
+                    else:
+                        # 其他键，转发给 ffplay
+                        try:
+                            proc.stdin.write(ch.encode())
+                            proc.stdin.flush()
+                        except Exception:
+                            pass
+            if proc.poll() is not None and not choice:
+                # 播放完毕，等待用户选择
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+                print("\n  ▶ 播放完毕")
+                choice = input("  输入选择 [d/n/s/q]: ").strip().lower()
+                return choice
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+
+        return choice
+
+    def _download_lyrics_for(candidate: Tuple[str, str, str, str], save_dir: Path) -> Optional[Path]:
+        """下载候选歌曲的歌词"""
+        name, artist, source, ident = candidate
+        safe_name = _safe_filename(f"{name} - {artist or '未知'}")
+        lrc_path = save_dir / f"{safe_name}.lrc"
+        try:
+            lrc = fetcher._fetch_lyric_by_candidate(candidate)
+            if lrc and fetcher._has_timeline(lrc):
+                lrc_path.write_text(lrc, encoding='utf-8')
+                print(f"  ✓ 歌词已保存: {lrc_path.name}")
+                return lrc_path
+            else:
+                print(f"  ! 该歌曲无有效歌词（无时间轴或纯音乐）")
+                return None
+        except Exception as e:
+            print(f"  ! 歌词下载失败: {e}")
+            return None
+
+    # ===== 主流程 =====
+    current_keyword = keyword if keyword != '__interactive__' else None
+
+    while True:
+        # 步骤1: 获取搜索关键词
+        if not current_keyword:
+            try:
+                current_keyword = input("\n输入歌曲名/歌手名搜索 (输入 q 退出): ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print("\n已退出")
+                return
+            if not current_keyword or current_keyword.lower() == 'q':
+                print("已退出")
+                return
+
+        # 步骤2: 搜索
+        print(f"\n正在搜索 \"{current_keyword}\" ...")
+        candidates = fetcher.search_candidates(current_keyword, top_n=10)
+        if not candidates:
+            print("未找到结果，请尝试其他关键词")
+            current_keyword = None
+            continue
+
+        print(f"\n找到 {len(candidates)} 首候选:")
+        for i, (name, artist, source, _) in enumerate(candidates):
+            src_label = src_name_map.get(source, source)
+            print(f"  [{i + 1}] {name} - {artist or '未知'}  ({src_label})")
+        print("  [0] 重新搜索")
+        print("  [q] 退出")
+
+        # 步骤3: 选择候选
+        try:
+            choice = input("\n选择序号试听: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n已退出")
+            return
+
+        if not choice or choice.lower() == 'q':
+            print("已退出")
+            return
+        if choice == '0':
+            current_keyword = None
+            continue
+
+        try:
+            idx = int(choice) - 1
+        except ValueError:
+            print("请输入数字序号")
+            continue
+
+        if idx < 0 or idx >= len(candidates):
+            print("序号超出范围")
+            continue
+
+        # 步骤4: 获取播放 URL 并试听
+        cand = candidates[idx]
+        song_name = f"{cand[0]} - {cand[1] or '未知'}"
+        print(f"\n获取播放链接中...")
+        song_url = fetcher.fetch_song_url_by_candidate(cand)
+        if not song_url:
+            print(f"未能获取 {song_name} 的播放链接，尝试下一个")
+            continue
+
+        # 步骤5: 试听 + 用户选择
+        action = _preview_play(song_url, song_name)
+
+        if action == 'q':
+            print("已退出")
+            return
+        elif action == 's':
+            current_keyword = None
+            continue
+        elif action == 'n':
+            # 返回候选列表，让用户选另一个
+            continue
+        elif action == 'd':
+            # 下载
+            safe_name = _safe_filename(f"{cand[0]} - {cand[1] or '未知'}")
+            print(f"\n正在下载: {safe_name}")
+
+            # 下载歌词
+            _download_lyrics_for(cand, out_dir)
+
+            # 下载歌曲
+            # 尝试从 URL 推断扩展名
+            ext = ".mp3"
+            if ".m4a" in song_url or "mp4" in song_url.lower():
+                ext = ".m4a"
+            elif ".flac" in song_url.lower():
+                ext = ".flac"
+            song_path = out_dir / f"{safe_name}{ext}"
+            if _download_url_to_file(song_url, song_path):
+                print(f"  ✓ 歌曲已保存: {song_path}")
+            else:
+                print(f"  ✗ 歌曲下载失败")
+
+            # 下载完成后，询问是否继续搜索
+            print()
+            try:
+                again = input("继续搜索其他歌曲？[Y/n/q]: ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print("\n已退出")
+                return
+            if again == 'q':
+                print("已退出")
+                return
+            elif again == 'n':
+                print("已退出")
+                return
+            else:
+                current_keyword = None
+                continue
+        else:
+            # 默认返回候选列表
+            continue
+
+
 def main():
     # 处理帮助命令
     if len(sys.argv) > 1 and sys.argv[1] in ['-h', '--help']:
@@ -7997,6 +8405,12 @@ def main():
                         help='与 --lyrics 配合：交互式选择候选歌词')
     parser.add_argument('--lyrics-output', metavar='PATH', dest='lyrics_output',
                         help='与 --lyrics 配合：指定输出 .lrc 路径（默认同名 .lrc 或 关键词.lrc）')
+    # ===== 歌曲下载 =====
+    parser.add_argument('--download', nargs='?', const='__interactive__', metavar='KEYWORD',
+                        dest='download',
+                        help='在线搜索并下载歌曲（含歌词）。无参数时交互式搜索，带关键词时自动下载最佳匹配')
+    parser.add_argument('--download-output', metavar='DIR', dest='download_output',
+                        help='与 --download 配合：指定下载输出目录（默认当前目录）')
     parser.add_argument('files', nargs='*', help='媒体文件路径')
     
     args = parser.parse_args()
@@ -8938,6 +9352,11 @@ def main():
                     reason = reason_map.get(info, info)
                     print(f"  ✗ {name} - {reason}")
             sys.exit(0 if fail_count == 0 else 1)
+
+    # ===== 歌曲下载模式 =====
+    if args.download is not None:
+        _download_song_interactive(config, args.download, args.download_output)
+        sys.exit(0)
 
     if not args.files:
         # 无文件参数时默认使用当前目录（v2.11.9 引入）
