@@ -70,7 +70,7 @@ import unicodedata
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 
-__version__ = "2.11.18"
+__version__ = "2.11.19"
 
 
 def _display_width(s: str) -> int:
@@ -7982,7 +7982,7 @@ def _download_song_interactive(config: 'Config', keyword: str, output_dir: str =
     out_dir = Path(output_dir) if output_dir else Path.cwd()
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    fetcher = OnlineLyricsFetcher(config)
+    fetcher = OnlineLyricsFetcher()
     src_name_map = {"qq": "QQ音乐", "netease": "网易云", "kugou": "酷狗"}
 
     def _safe_filename(s: str) -> str:
