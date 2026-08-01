@@ -5,6 +5,18 @@
 
 ## 📋 更新日志
 
+### v2.12.0
+
+**项目结构重构**：将原 9488 行单文件 `mp.py` 拆分为 `mp.py`（启动器，19 行）+ `mp/` 包目录（22 个功能模块），提升可维护性。
+
+- 📦 **包结构拆分**：`mp.py` 仅作为启动入口，实际代码移至 `mp/` 包目录，按功能拆分为 `constants`、`config`、`utils`、`updater`、`players`、`effects`、`visual`、`lyrics`、`playlist`、`metadata`、`audio_tools`、`video_tools`、`media_tools`、`media_library`、`file_browser`、`noise`、`managers`、`media_info`、`download`、`help_text`、`main`、`__main__` 共 22 个模块
+- 🔄 **自动更新逻辑适配包结构**：`check_for_update` 不再只替换单个 `mp.py`，改为替换整个包（`mp.py` + `mp/` 目录下所有 `.py` 文件）
+- 🛡️ **新增 `_apply_zip_update` 函数**：统一的 zip 解压、校验、替换流程，支持平铺结构和带顶层目录（codeload 风格）两种 zip 格式
+- 🔒 **zip slip 防护**：解压时逐成员校验路径，防止路径遍历攻击
+- ✅ **全文件语法校验**：所有 `.py` 文件逐个通过 `py_compile` 校验后才替换，任一文件校验失败则放弃更新
+- 🔁 **目录替换原子性**：`mp/` 目录替换采用"重命名旧目录 -> 复制新目录 -> 删除旧目录"三步法，复制中途失败可恢复旧目录
+- 🚀 **策略2 改为 codeload 仓库 zip**：原 raw.githubusercontent.com 下载单文件 `mp.py` 不适用于包结构，改为下载 `codeload.github.com` 完整仓库 zip
+
 ### v2.11.11
 
 **代码审查修复**（共 18 项，覆盖严重缺陷、一般问题、优化建议三类）：
@@ -162,7 +174,7 @@ pip install pygame
    - **macOS**: `brew install ffmpeg`
    - **Ubuntu/Debian**: `sudo apt install ffmpeg`
    - **Arch**: `sudo pacman -S ffmpeg`
-4. 将mp.py加入系统目录
+4. 将 `mp.py` 和 `mp/` 包目录一起放入系统目录（两者须在同一层级）
 
 ## 📖 使用方法
 
@@ -855,7 +867,8 @@ mp-uninstall
 
 ## 📁 安装位置
 
-- 主程序：`~/.local/share/mp/mp.py`
+- 主程序（启动器）：`~/.local/share/mp/mp.py`
+- 程序包目录：`~/.local/share/mp/mp/`（22 个功能模块）
 - 可执行文件：`~/.local/bin/mp`
 - 配置文件：`~/.config/mp/config.json`
 - 播放列表：`~/.config/mp/playlists/`

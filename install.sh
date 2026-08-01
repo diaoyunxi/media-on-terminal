@@ -54,7 +54,8 @@ print_info "检测到系统: $OS"
 
 # 获取脚本所在目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MP_PY="$SCRIPT_DIR/mp.py"
+MP_PY="$SCRIPT_DIR/mp.py"        # 启动器入口文件
+MP_PKG="$SCRIPT_DIR/mp"          # mp 包目录（拆分后的模块集合）
 
 # 设置Python命令
 PYTHON_CMD="python3"
@@ -84,6 +85,12 @@ if [ -f "$MP_PY" ]; then
     chmod +x "$MP_PY"
 else
     print_error "找不到 mp.py 文件"
+    exit 1
+fi
+
+# 检查 mp 包目录是否存在（mp.py 启动器依赖 mp/ 包才能运行）
+if [ ! -d "$MP_PKG" ]; then
+    print_error "找不到 mp 包目录（mp/），请确认项目文件完整"
     exit 1
 fi
 
@@ -195,36 +202,42 @@ install_to_path() {
 #!/usr/bin/env bash
 # mp 包装脚本 - Terminal Audio Player 启动器
 
-# 查找真实的mp.py位置
+# 查找真实的mp.py位置（mp.py 必须与 mp/ 包目录在同一层级）
 REAL_MP_PY=""
+REAL_MP_DIR=""   # mp.py 所在目录，用于校验 mp/ 包是否存在
 
-# 优先查找用户安装目录
-if [[ -f "$HOME/.local/share/mp/mp.py" ]]; then
+# 优先查找用户安装目录（同时校验 mp/ 包目录存在）
+if [[ -f "$HOME/.local/share/mp/mp.py" && -d "$HOME/.local/share/mp/mp" ]]; then
     REAL_MP_PY="$HOME/.local/share/mp/mp.py"
+    REAL_MP_DIR="$HOME/.local/share/mp"
 fi
 
 # 尝试系统安装目录
-if [[ -z "$REAL_MP_PY" && -f "/usr/local/share/mp/mp.py" ]]; then
+if [[ -z "$REAL_MP_PY" && -f "/usr/local/share/mp/mp.py" && -d "/usr/local/share/mp/mp" ]]; then
     REAL_MP_PY="/usr/local/share/mp/mp.py"
+    REAL_MP_DIR="/usr/local/share/mp"
 fi
 
 # 尝试脚本所在目录
 if [[ -z "$REAL_MP_PY" ]]; then
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    if [[ -f "$SCRIPT_DIR/../mp/mp.py" ]]; then
+    if [[ -f "$SCRIPT_DIR/../mp/mp.py" && -d "$SCRIPT_DIR/../mp/mp" ]]; then
         REAL_MP_PY="$SCRIPT_DIR/../mp/mp.py"
-    elif [[ -f "$SCRIPT_DIR/mp.py" ]]; then
+        REAL_MP_DIR="$SCRIPT_DIR/../mp"
+    elif [[ -f "$SCRIPT_DIR/mp.py" && -d "$SCRIPT_DIR/mp" ]]; then
         REAL_MP_PY="$SCRIPT_DIR/mp.py"
+        REAL_MP_DIR="$SCRIPT_DIR"
     fi
 fi
 
 # 最后尝试当前目录
-if [[ -z "$REAL_MP_PY" && -f "$PWD/mp.py" ]]; then
+if [[ -z "$REAL_MP_PY" && -f "$PWD/mp.py" && -d "$PWD/mp" ]]; then
     REAL_MP_PY="$PWD/mp.py"
+    REAL_MP_DIR="$PWD"
 fi
 
 if [[ -z "$REAL_MP_PY" ]]; then
-    echo "错误: 找不到 mp.py"
+    echo "错误: 找不到 mp.py 或 mp 包目录"
     echo "请重新运行安装脚本"
     exit 1
 fi
@@ -236,10 +249,24 @@ EOF
     chmod +x "$wrapper"
     print_success "已安装到: $wrapper"
     
-    # 复制mp.py到共享位置
+    # 复制mp.py和mp包到共享位置（确保在同一层级）
     mkdir -p "$HOME/.local/share/mp"
     cp "$MP_PY" "$HOME/.local/share/mp/mp.py"
     chmod +x "$HOME/.local/share/mp/mp.py"
+    
+    # 复制 mp 包目录（排除 __pycache__ 和 .pyc 缓存文件）
+    # 先清除旧副本，避免残留已删除的模块
+    rm -rf "$HOME/.local/share/mp/mp"
+    if command -v rsync &> /dev/null; then
+        # 优先使用 rsync，可直接排除 __pycache__
+        rsync -a --exclude='__pycache__' --exclude='*.pyc' "$MP_PKG/" "$HOME/.local/share/mp/mp/"
+    else
+        # 无 rsync 时，先整目录复制再清理缓存文件
+        cp -r "$MP_PKG" "$HOME/.local/share/mp/mp"
+        find "$HOME/.local/share/mp/mp" -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
+        find "$HOME/.local/share/mp/mp" -name '*.pyc' -delete 2>/dev/null || true
+    fi
+    print_success "已复制 mp 包目录（$(ls -1 "$HOME/.local/share/mp/mp" | wc -l | tr -d ' ') 个文件）"
     
     # 添加到PATH（如果需要）
     if [[ ":$PATH:" != *":$install_path:"* ]]; then
@@ -335,6 +362,7 @@ uninstall() {
     print_warn "开始卸载 mp..."
     
     rm -f "$HOME/.local/bin/mp"
+    # 删除安装目录（包含 mp.py 启动器和 mp/ 包目录）
     rm -rf "$HOME/.local/share/mp"
     rm -f "$HOME/.bash_completion.d/mp"
     rm -f "$HOME/.zsh/completions/_mp"
