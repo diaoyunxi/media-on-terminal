@@ -35,6 +35,7 @@ from mp.lyrics import LyricsDisplay
 from mp.visual import AudioVisualizer
 from mp.metadata import MetadataEditor
 from mp.playlist import Playlist
+from mp.utils import _display_width, _truncate_to_width
 
 class AudioPlayer:
     """音频播放器类"""
