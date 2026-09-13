@@ -1,38 +1,20 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """媒体文件信息"""
 
-import sys
 import os
+
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-import re
-import signal
-import platform
-import subprocess
-import shutil
-import argparse
-import time
-import threading
-import random
 import json
-import hashlib
-import struct
-import zipfile
-import tempfile
-import base64
-import urllib.request
-import urllib.error
-import urllib.parse
-import unicodedata
+import subprocess
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
+from typing import Any
 
 
 class MediaInfo:
     """媒体信息类"""
     
     @staticmethod
-    def get_info(file_path: Path) -> Dict[str, Any]:
+    def get_info(file_path: Path) -> dict[str, Any]:
         """获取媒体文件的详细信息"""
         info = {
             'path': str(file_path),
@@ -129,10 +111,10 @@ class MediaInfo:
         return f"{minutes:02d}:{secs:02d}"
     
     @staticmethod
-    def display_info(info: Dict[str, Any]):
+    def display_info(info: dict[str, Any]):
         """显示媒体信息"""
         print(f"\n{'='*60}")
-        print(f"  媒体信息")
+        print("  媒体信息")
         print(f"{'='*60}")
         print(f"  文件名: {info['name']}")
         print(f"  格式: {info['format'].upper()}")
@@ -151,14 +133,14 @@ class MediaInfo:
         
         # 音频信息
         if info['channels'] > 0:
-            print(f"\n  --- 音频 ---")
+            print("\n  --- 音频 ---")
             print(f"  编码: {info['codec'].upper()}")
             print(f"  采样率: {info['sample_rate']} Hz")
             print(f"  声道: {info['channels']}")
         
         # 视频信息
         if info['width'] > 0:
-            print(f"\n  --- 视频 ---")
+            print("\n  --- 视频 ---")
             print(f"  分辨率: {info['width']}x{info['height']}")
             if info['fps'] > 0:
                 print(f"  帧率: {info['fps']:.2f} fps")

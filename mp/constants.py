@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """全局常量定义
 
 路径常量集中管理，避免循环导入。

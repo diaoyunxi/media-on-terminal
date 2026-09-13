@@ -1,34 +1,25 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """GitHub 自动更新"""
 
-import sys
 import os
+import sys
+
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-import re
-import signal
-import platform
-import subprocess
-import shutil
-import argparse
-import time
-import threading
-import random
-import json
 import hashlib
-import struct
-import zipfile
+import json
+import re
+import shutil
+import subprocess
 import tempfile
-import base64
-import urllib.request
+import time
 import urllib.error
 import urllib.parse
-import unicodedata
-from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
+import urllib.request
+import zipfile
 
 from mp import __version__
-from mp.constants import CONFIG_DIR, UPDATE_CACHE_FILE, GITHUB_REPO, _GITHUB_MIRROR
+from mp.constants import _GITHUB_MIRROR, CONFIG_DIR, GITHUB_REPO, UPDATE_CACHE_FILE
+
 
 def _github_url(url: str) -> str:
     """通过 GITHUB_MIRROR 环境变量转发 GitHub 相关 URL
@@ -56,8 +47,8 @@ def _fetch_latest_version_github():
     - 缓存有效期内直接返回缓存结果，不再请求 API
     - API 请求失败时（速率限制/网络错误）使用过期缓存兜底，避免完全无返回
     """
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     # --- 缓存读取 ---
     cache = None
@@ -429,8 +420,8 @@ def check_for_update(force: bool = False):
     :param force: 为 True 时即使已是最新版也显示版本信息（用于 --update 模式）
     :return: True 表示已更新并退出程序；False 表示未更新或检查失败
     """
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     try:
         latest, release_url, assets = _fetch_latest_version_github()
@@ -447,7 +438,7 @@ def check_for_update(force: bool = False):
             return False
 
         print(f"\n{'='*50}")
-        print(f"  发现新版本！")
+        print("  发现新版本！")
         print(f"  当前版本: v{__version__}")
         print(f"  最新版本: {latest}")
         print(f"{'='*50}")
@@ -526,7 +517,7 @@ def check_for_update(force: bool = False):
                 codeload_url = _github_url(
                     f"https://codeload.github.com/{GITHUB_REPO}/zip/refs/heads/main"
                 )
-                print(f"  下载 main 分支仓库 zip ...")
+                print("  下载 main 分支仓库 zip ...")
                 req = urllib.request.Request(codeload_url, headers={"User-Agent": "mp-player"})
                 with urllib.request.urlopen(req, timeout=60) as resp:
                     content = resp.read()
@@ -548,7 +539,7 @@ def check_for_update(force: bool = False):
         # 策略3：git pull（最后回退，仅当安装根目录有 .git）
         if not updated and os.path.isdir(os.path.join(install_root, '.git')):
             try:
-                print(f"  尝试 git pull ...")
+                print("  尝试 git pull ...")
                 result = subprocess.run(
                     ['git', 'pull'],
                     cwd=install_root,

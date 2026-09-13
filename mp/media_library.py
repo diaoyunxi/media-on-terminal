@@ -1,31 +1,14 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """媒体库管理"""
 
-import sys
 import os
+
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-import re
-import signal
-import platform
-import subprocess
-import shutil
-import argparse
-import time
-import threading
-import random
 import json
-import hashlib
-import struct
-import zipfile
-import tempfile
-import base64
-import urllib.request
-import urllib.error
-import urllib.parse
-import unicodedata
+import time
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
+from typing import Any
+
 from mp.constants import CONFIG_DIR
 from mp.media_info import MediaInfo
 
@@ -113,7 +96,7 @@ class MediaLibrary:
         print(f"  媒体库总计: {len(self.library['files'])} 个文件")
         return count
 
-    def search(self, query: str, field: str = 'all') -> List[Dict[str, Any]]:
+    def search(self, query: str, field: str = 'all') -> list[dict[str, Any]]:
         """在媒体库中搜索"""
         query_lower = query.lower()
         results = []
@@ -133,7 +116,7 @@ class MediaLibrary:
                 break
         return results
 
-    def display_results(self, results: List[Dict[str, Any]]):
+    def display_results(self, results: list[dict[str, Any]]):
         """显示搜索结果"""
         print(f"\n{'='*60}")
         print(f"  搜索结果 ({len(results)} 条)")
@@ -157,7 +140,7 @@ class MediaLibrary:
         """显示媒体库统计"""
         files = self.library['files']
         print(f"\n{'='*60}")
-        print(f"  媒体库统计")
+        print("  媒体库统计")
         print(f"{'='*60}")
         print(f"  文件总数: {len(files)}")
 
@@ -165,7 +148,7 @@ class MediaLibrary:
             return
 
         # 格式分布
-        by_ext: Dict[str, int] = {}
+        by_ext: dict[str, int] = {}
         total_size = 0
         total_dur = 0
         for entry in files:
@@ -176,7 +159,7 @@ class MediaLibrary:
 
         print(f"  总大小: {MediaInfo.format_size(total_size)}")
         print(f"  总时长: {MediaInfo.format_duration(total_dur)}")
-        print(f"\n  格式分布:")
+        print("\n  格式分布:")
         for ext, cnt in sorted(by_ext.items(), key=lambda x: x[1], reverse=True):
             print(f"    {ext.upper():6s}: {cnt}")
 

@@ -1,72 +1,89 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """主入口：命令行参数解析与分发"""
 
-import sys
 import os
+import sys
+
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
+import argparse
 import re
 import signal
-import platform
 import subprocess
-import shutil
-import argparse
-import time
-import threading
-import random
-import json
-import hashlib
-import struct
-import zipfile
-import tempfile
-import base64
-import urllib.request
-import urllib.error
-import urllib.parse
-import unicodedata
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
 
 from mp import __version__
-from mp.config import Config
-from mp.media_info import MediaInfo
-from mp.utils import check_and_install_dependencies, check_ffmpeg
-from mp.constants import GITHUB_REPO, _GITHUB_MIRROR
-from mp.playlist import Playlist, PlaylistIO
-from mp.players import AudioPlayer, VideoPlayer
-from mp.managers import (
-    BookmarkManager, FavoritesManager, HistoryManager,
-    StatisticsManager, RadioManager,
-)
-from mp.effects import Equalizer
-from mp.file_browser import FileBrowser
-from mp.noise import NoiseGenerator
-from mp.metadata import MetadataEditor, BatchRenamer, MetadataStripper, BPMDetector, SubtitleExtractor
-from mp.lyrics import LyricsDisplay, OnlineLyricsFetcher
 from mp.audio_tools import (
-    AudioRecorder, AudioExtractor, AudioTrimmer, AudioMerger, AudioReverser,
-    ChannelConverter, SampleRateConverter, AVMuxer, AudioMixMixer, RingtoneMaker,
+    AudioExtractor,
+    AudioMerger,
+    AudioMixMixer,
+    AudioRecorder,
+    AudioReverser,
+    AudioTrimmer,
+    AVMuxer,
+    ChannelConverter,
+    RingtoneMaker,
+    SampleRateConverter,
 )
-from mp.video_tools import (
-    GifConverter, ScreenshotCapture, VideoConcat, VideoScaler,
-    VideoRotator, VideoCropper, FpsConverter, ContactSheet,
-)
-from mp.media_tools import (
-    MediaSplitter, SilenceCutter, SegmentRepeater,
-    MediaHealthChecker, DuplicateFinder, MetadataExporter, AudioFingerprinter,
-)
+from mp.config import Config, ConfigBackup
+from mp.download import download_song_interactive
 from mp.effects import (
-    FadeEffect, ReverbEffect, AudioNormalizer, VolumeGain, VolumeRamp,
-    AudioConverter, CrossfadeManager, PitchControl,
+    AudioConverter,
+    AudioNormalizer,
+    Equalizer,
+    FadeEffect,
+    ReverbEffect,
+    VolumeGain,
+    VolumeRamp,
+)
+from mp.file_browser import FileBrowser
+from mp.help_text import show_help
+from mp.lyrics import LyricsDisplay, OnlineLyricsFetcher
+from mp.managers import (
+    FavoritesManager,
+    HistoryManager,
+    RadioManager,
+    StatisticsManager,
+)
+from mp.media_info import MediaInfo
+from mp.media_library import MediaLibrary
+from mp.media_tools import (
+    AudioFingerprinter,
+    DuplicateFinder,
+    MediaHealthChecker,
+    MediaSplitter,
+    MetadataExporter,
+    SegmentRepeater,
+    SilenceCutter,
+)
+from mp.metadata import (
+    BatchRenamer,
+    BPMDetector,
+    MetadataEditor,
+    MetadataStripper,
+    SubtitleExtractor,
+)
+from mp.noise import NoiseGenerator
+from mp.players import AudioPlayer, VideoPlayer
+from mp.playlist import Playlist, PlaylistIO
+from mp.updater import check_for_update
+from mp.utils import check_and_install_dependencies
+from mp.video_tools import (
+    ContactSheet,
+    FpsConverter,
+    GifConverter,
+    ScreenshotCapture,
+    VideoConcat,
+    VideoCropper,
+    VideoRotator,
+    VideoScaler,
 )
 from mp.visual import (
-    SpectrogramGenerator, WaveformGenerator, CoverExtractor, AsciiArtExporter,
+    AsciiArtExporter,
+    CoverExtractor,
+    SpectrogramGenerator,
+    WaveformGenerator,
 )
-from mp.media_library import MediaLibrary
-from mp.config import ConfigBackup
-from mp.updater import check_for_update
-from mp.download import download_song_interactive
-from mp.help_text import show_help
+
 
 def play_playlist(playlist: Playlist, config: Config, loop: str = 'none', explicit_loop: bool = False):
     """播放播放列表
@@ -1154,7 +1171,7 @@ def main():
                 cand = candidates[idx]
                 lrc = fetcher._fetch_lyric_by_candidate(cand)
                 if not fetcher._has_timeline(lrc):
-                    print(f"该候选无有效歌词（无时间轴或纯音乐占位）")
+                    print("该候选无有效歌词（无时间轴或纯音乐占位）")
                     return False, "no_timeline", 0
                 source = cand[2]
                 src_label = src_name_map.get(source, source)
