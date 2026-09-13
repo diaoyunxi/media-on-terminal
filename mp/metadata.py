@@ -1,31 +1,16 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """元数据编辑"""
 
-import sys
 import os
+
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-import re
-import signal
-import platform
-import subprocess
-import shutil
-import argparse
-import time
-import threading
-import random
 import json
-import hashlib
+import shutil
 import struct
-import zipfile
-import tempfile
-import base64
-import urllib.request
-import urllib.error
-import urllib.parse
-import unicodedata
+import subprocess
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
+from typing import Any
+
 from mp.media_info import MediaInfo
 
 
@@ -42,7 +27,7 @@ class MetadataEditor:
     }
 
     @staticmethod
-    def get_tags(file_path: Path) -> Dict[str, str]:
+    def get_tags(file_path: Path) -> dict[str, str]:
         """获取文件的标签信息"""
         tags = {}
         try:
@@ -147,7 +132,7 @@ class MetadataEditor:
                     break
             print(f"  {i}. {display_name:8s}: {current_value or '(空)'}")
 
-        print(f"\n输入编号修改 (1-6), 0 取消, q 退出:")
+        print("\n输入编号修改 (1-6), 0 取消, q 退出:")
 
         try:
             choice = input("> ").strip()
@@ -198,7 +183,7 @@ class BatchRenamer:
             return 0
 
         if not any(ph in pattern for ph in BatchRenamer.SUPPORTED_PLACEHOLDERS):
-            print(f"✗ 模式不包含任何占位符")
+            print("✗ 模式不包含任何占位符")
             print(f"  可用占位符: {', '.join(BatchRenamer.SUPPORTED_PLACEHOLDERS)}")
             return 0
 
@@ -286,7 +271,7 @@ class MetadataStripper:
 
     @staticmethod
     def strip(file_path: Path,
-              output_path: Optional[Path] = None) -> bool:
+              output_path: Path | None = None) -> bool:
         """移除所有元数据，流复制保留原编码"""
         if not file_path.exists():
             print(f"错误: 文件不存在 {file_path}")
@@ -325,7 +310,7 @@ class MetadataStripper:
             return False
 
     @staticmethod
-    def batch_strip(files: List[Path]) -> int:
+    def batch_strip(files: list[Path]) -> int:
         """批量剥离元数据，返回成功数"""
         total = len(files)
         success = 0
@@ -347,7 +332,7 @@ class BPMDetector:
     MAX_BPM = 200
 
     @staticmethod
-    def detect(file_path: Path) -> Optional[float]:
+    def detect(file_path: Path) -> float | None:
         """检测音频 BPM（每分钟节拍数）"""
         if not file_path.exists():
             print(f"错误: 文件不存在 {file_path}")
@@ -445,7 +430,7 @@ class SubtitleExtractor:
     """字幕提取 - 从视频文件提取字幕轨道"""
 
     @staticmethod
-    def list_streams(video_path: Path) -> List[Dict[str, Any]]:
+    def list_streams(video_path: Path) -> list[dict[str, Any]]:
         """列出视频中所有字幕流"""
         cmd = [
             'ffprobe', '-v', 'quiet',
@@ -463,9 +448,9 @@ class SubtitleExtractor:
         return []
 
     @staticmethod
-    def extract(video_path: Path, stream_index: Optional[int] = None,
+    def extract(video_path: Path, stream_index: int | None = None,
                 output_format: str = 'srt',
-                output_path: Optional[Path] = None) -> bool:
+                output_path: Path | None = None) -> bool:
         """从视频提取字幕
         stream_index: 字幕流索引（0-based），None 表示第一个字幕流
         output_format: srt 或 ass
@@ -516,7 +501,7 @@ class SubtitleExtractor:
             if result.returncode == 0 and output_path.exists():
                 size = output_path.stat().st_size
                 if size == 0:
-                    print(f"✗ 字幕为空")
+                    print("✗ 字幕为空")
                     output_path.unlink()
                     return False
                 print(f"✓ 提取完成: {output_path.name}")

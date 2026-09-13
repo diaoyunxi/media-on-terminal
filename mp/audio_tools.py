@@ -1,33 +1,16 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """音频工具集"""
 
-import sys
 import os
+
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-import re
-import signal
 import platform
-import subprocess
 import shutil
-import argparse
-import time
-import threading
-import random
-import json
-import hashlib
-import struct
-import zipfile
-import tempfile
-import base64
-import urllib.request
-import urllib.error
-import urllib.parse
-import unicodedata
+import subprocess
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
-from mp.media_info import MediaInfo
+
 from mp.effects import AudioConverter
+from mp.media_info import MediaInfo
 
 
 class AudioRecorder:
@@ -42,7 +25,7 @@ class AudioRecorder:
     }
 
     @staticmethod
-    def _find_input_device() -> List[str]:
+    def _find_input_device() -> list[str]:
         """根据平台选择合适的 ffmpeg 音频输入设备"""
         system = platform.system()
         if system == "Linux":
@@ -56,7 +39,7 @@ class AudioRecorder:
             return ['-f', 'dshow', '-i', 'audio=Microphone']
 
     @staticmethod
-    def record(output_path: Path, duration: Optional[float] = None) -> bool:
+    def record(output_path: Path, duration: float | None = None) -> bool:
         """录制音频到指定文件"""
         ext = output_path.suffix.lower()
         if ext not in AudioRecorder.SUPPORTED_FORMATS:
@@ -74,14 +57,14 @@ class AudioRecorder:
         cmd.append(str(output_path))
 
         print(f"\n{'='*60}")
-        print(f"  音频录制")
+        print("  音频录制")
         print(f"{'='*60}")
         print(f"  输出文件: {output_path}")
         if duration:
             print(f"  录制时长: {MediaInfo.format_duration(duration)}")
         else:
-            print(f"  录制时长: 直至按 Ctrl+C 停止")
-        print(f"  按 Ctrl+C 停止录制")
+            print("  录制时长: 直至按 Ctrl+C 停止")
+        print("  按 Ctrl+C 停止录制")
         print(f"{'='*60}\n")
 
         try:
@@ -95,7 +78,7 @@ class AudioRecorder:
                 print("\n✗ 录制失败：输出文件为空（请检查麦克风设备）")
                 return False
         except KeyboardInterrupt:
-            print(f"\n停止录制")
+            print("\n停止录制")
             if output_path.exists():
                 print(f"✓ 已保存: {output_path}")
                 return True
@@ -108,10 +91,10 @@ class AudioRecorder:
             return False
 
     @staticmethod
-    def run_interactive(output_path: Optional[Path] = None):
+    def run_interactive(output_path: Path | None = None):
         """交互式录制"""
         if output_path is None:
-            print(f"\n音频录制器")
+            print("\n音频录制器")
             print(f"{'='*60}")
             name = input("输出文件名 (默认 recording.wav): ").strip()
             if not name:
@@ -153,7 +136,7 @@ class AudioExtractor:
 
     @staticmethod
     def extract(video_path: Path, output_format: str = 'mp3',
-                output_dir: Optional[Path] = None) -> bool:
+                output_dir: Path | None = None) -> bool:
         """从视频文件提取音频"""
         if not video_path.exists():
             print(f"错误: 文件不存在 {video_path}")
@@ -205,7 +188,7 @@ class AudioExtractor:
             return False
 
     @staticmethod
-    def batch_extract(video_files: List[Path], output_format: str = 'mp3') -> int:
+    def batch_extract(video_files: list[Path], output_format: str = 'mp3') -> int:
         """批量提取音频"""
         success = 0
         total = len(video_files)
@@ -226,8 +209,8 @@ class AudioTrimmer:
     """媒体裁剪 - 提取指定时间范围的音频/视频片段"""
 
     @staticmethod
-    def trim(file_path: Path, start: float, end: Optional[float] = None,
-             output_path: Optional[Path] = None) -> bool:
+    def trim(file_path: Path, start: float, end: float | None = None,
+             output_path: Path | None = None) -> bool:
         """裁剪媒体文件，提取 [start, end] 时间段"""
         if not file_path.exists():
             print(f"错误: 文件不存在 {file_path}")
@@ -236,7 +219,7 @@ class AudioTrimmer:
         info = MediaInfo.get_info(file_path)
         duration = info.get('duration', 0) if isinstance(info, dict) else 0
         if duration <= 0:
-            print(f"✗ 无法读取文件时长")
+            print("✗ 无法读取文件时长")
             return False
 
         if start < 0 or start >= duration:
@@ -248,8 +231,7 @@ class AudioTrimmer:
         if end <= start:
             print(f"✗ 结束时间需大于起始时间（start={start}, end={end}）")
             return False
-        if end > duration:
-            end = duration
+        end = min(end, duration)
 
         if output_path is None:
             output_path = file_path.with_name(
@@ -276,7 +258,7 @@ class AudioTrimmer:
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
                 return True
             # 流复制失败时回退到重编码
-            print(f"  流复制失败，尝试重编码...")
+            print("  流复制失败，尝试重编码...")
             cmd = [
                 'ffmpeg', '-y', '-loglevel', 'warning',
                 '-ss', f'{start:.3f}',
@@ -302,8 +284,8 @@ class AudioMerger:
     """音频合并 - 将多个音频文件合并为一个"""
 
     @staticmethod
-    def merge(input_files: List[Path], output_path: Path,
-              output_format: Optional[str] = None) -> bool:
+    def merge(input_files: list[Path], output_path: Path,
+              output_format: str | None = None) -> bool:
         """合并多个音频文件到一个输出文件"""
         if len(input_files) < 2:
             print("错误: 合并至少需要 2 个文件")
@@ -360,7 +342,7 @@ class AudioReverser:
     """音频反向 - 反转音频播放方向"""
 
     @staticmethod
-    def reverse(file_path: Path, output_path: Optional[Path] = None) -> bool:
+    def reverse(file_path: Path, output_path: Path | None = None) -> bool:
         """反转音频播放方向"""
         if not file_path.exists():
             print(f"错误: 文件不存在 {file_path}")
@@ -391,7 +373,7 @@ class AudioReverser:
             return False
 
     @staticmethod
-    def batch_reverse(file_paths: List[Path]) -> int:
+    def batch_reverse(file_paths: list[Path]) -> int:
         success = 0
         total = len(file_paths)
         print(f"\n批量反向: {total} 个文件")
@@ -412,7 +394,7 @@ class ChannelConverter:
 
     @staticmethod
     def convert(file_path: Path, channels: int,
-                output_path: Optional[Path] = None) -> bool:
+                output_path: Path | None = None) -> bool:
         """转换音频声道数 (1=单声道, 2=立体声)"""
         if not file_path.exists():
             print(f"错误: 文件不存在 {file_path}")
@@ -451,7 +433,7 @@ class ChannelConverter:
             return False
 
     @staticmethod
-    def batch_convert(files: List[Path], channels: int) -> int:
+    def batch_convert(files: list[Path], channels: int) -> int:
         """批量转换声道数"""
         success = 0
         total = len(files)
@@ -476,7 +458,7 @@ class SampleRateConverter:
 
     @staticmethod
     def convert(file_path: Path, sample_rate: int,
-                output_path: Optional[Path] = None) -> bool:
+                output_path: Path | None = None) -> bool:
         """转换音频采样率"""
         if not file_path.exists():
             print(f"错误: 文件不存在 {file_path}")
@@ -513,7 +495,7 @@ class SampleRateConverter:
             return False
 
     @staticmethod
-    def batch_convert(files: List[Path], sample_rate: int) -> int:
+    def batch_convert(files: list[Path], sample_rate: int) -> int:
         """批量转换采样率"""
         success = 0
         total = len(files)
@@ -535,7 +517,7 @@ class AVMuxer:
 
     @staticmethod
     def mux(video_path: Path, audio_path: Path,
-            output_path: Optional[Path] = None,
+            output_path: Path | None = None,
             replace: bool = True) -> bool:
         """将音频合并到视频
         replace=True 替换原音轨；False 则同时保留原音轨
@@ -604,8 +586,8 @@ class AudioMixMixer:
     """音频混音 - 将多个音轨混合为一个（音量自动平衡）"""
 
     @staticmethod
-    def mix(input_files: List[Path], output_path: Path,
-            output_format: Optional[str] = None) -> bool:
+    def mix(input_files: list[Path], output_path: Path,
+            output_format: str | None = None) -> bool:
         """混合多个音频文件，使用 amix 滤镜自动归一化音量"""
         if len(input_files) < 2:
             print("错误: 混音至少需要 2 个文件")
@@ -666,9 +648,9 @@ class RingtoneMaker:
 
     @staticmethod
     def make(file_path: Path, start: float = 0.0,
-             duration: Optional[float] = None,
+             duration: float | None = None,
              fade: float = 2.0,
-             output_path: Optional[Path] = None) -> bool:
+             output_path: Path | None = None) -> bool:
         """从媒体文件生成铃声"""
         if not file_path.exists():
             print(f"错误: 文件不存在 {file_path}")
@@ -677,7 +659,7 @@ class RingtoneMaker:
         info = MediaInfo.get_info(file_path)
         total = info.get('duration', 0) if isinstance(info, dict) else 0
         if total <= 0:
-            print(f"✗ 无法读取文件时长")
+            print("✗ 无法读取文件时长")
             return False
 
         if duration is None:

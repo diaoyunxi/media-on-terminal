@@ -1,40 +1,25 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """媒体处理工具"""
 
-import sys
 import os
+
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-import re
-import signal
-import platform
-import subprocess
-import shutil
-import argparse
-import time
-import threading
-import random
-import json
 import hashlib
-import struct
-import zipfile
-import tempfile
-import base64
-import urllib.request
-import urllib.error
-import urllib.parse
-import unicodedata
+import json
+import shutil
+import subprocess
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
-from mp.media_info import MediaInfo
+from typing import Any
+
 from mp.effects import AudioConverter
+from mp.media_info import MediaInfo
 
 
 class MediaSplitter:
     """媒体分段 - 按段数或每段时长切分音频/视频文件"""
 
     @staticmethod
-    def parse_duration(s: str) -> Optional[float]:
+    def parse_duration(s: str) -> float | None:
         """解析时长字符串，支持 'SS'、'MM:SS'、'HH:MM:SS'"""
         try:
             if ':' in s:
@@ -49,7 +34,7 @@ class MediaSplitter:
 
     @staticmethod
     def split(file_path: Path, spec: str,
-              output_dir: Optional[Path] = None) -> int:
+              output_dir: Path | None = None) -> int:
         """按段数（纯整数 1-100）或每段时长切分，返回成功切分的段数"""
         info = MediaInfo.get_info(file_path)
         duration = info.get('duration', 0)
@@ -116,7 +101,7 @@ class SilenceCutter:
 
     @staticmethod
     def detect(file_path: Path, threshold_db: float = -30.0,
-               min_duration: float = 0.5) -> List[Tuple[float, Optional[float]]]:
+               min_duration: float = 0.5) -> list[tuple[float, float | None]]:
         """检测静音段，返回 [(start, end), ...]，end 为 None 表示到结尾"""
         cmd = [
             'ffmpeg', '-i', str(file_path),
@@ -181,7 +166,7 @@ class SilenceCutter:
     @staticmethod
     def cut(file_path: Path, threshold_db: float = -30.0,
             min_duration: float = 0.5,
-            output_path: Optional[Path] = None) -> bool:
+            output_path: Path | None = None) -> bool:
         """使用 silenceremove 滤镜自动裁剪音频中的静音段"""
         info = MediaInfo.get_info(file_path)
         has_video = info.get('width', 0) > 0
@@ -237,7 +222,7 @@ class SegmentRepeater:
 
     @staticmethod
     def repeat(file_path: Path, start: float, end: float, times: int,
-               output_path: Optional[Path] = None) -> bool:
+               output_path: Path | None = None) -> bool:
         """重复 [start,end] 片段 times 次，再接原文件 [end,末尾]
         使用 trim+concat 滤镜实现"""
         if not file_path.exists():
@@ -328,7 +313,7 @@ class MediaHealthChecker:
     """媒体健康检查 - 检测媒体文件是否损坏、能否正常解码"""
 
     @staticmethod
-    def check(file_path: Path) -> Dict[str, Any]:
+    def check(file_path: Path) -> dict[str, Any]:
         """检查单个文件的健康状况"""
         result = {
             'file': str(file_path),
@@ -394,7 +379,7 @@ class MediaHealthChecker:
         return result
 
     @staticmethod
-    def check_and_display(file_paths: List[Path]) -> int:
+    def check_and_display(file_paths: list[Path]) -> int:
         """批量检查并展示结果，返回异常文件数"""
         total = len(file_paths)
         ok = 0
@@ -441,14 +426,14 @@ class DuplicateFinder:
         return h.hexdigest()
 
     @staticmethod
-    def find(directory: Path, recursive: bool = True) -> Dict[str, List[Path]]:
+    def find(directory: Path, recursive: bool = True) -> dict[str, list[Path]]:
         """查找重复文件，返回 {hash: [paths]} 字典（仅包含重复项）"""
         if not directory.exists() or not directory.is_dir():
             print(f"错误: 目录不存在 {directory}")
             return {}
 
         # 先按大小分组，相同大小再算哈希（避免无谓的哈希计算）
-        size_map: Dict[int, List[Path]] = {}
+        size_map: dict[int, list[Path]] = {}
         glob_pattern = '**/*' if recursive else '*'
         for entry in directory.glob(glob_pattern):
             if not entry.is_file():
@@ -462,7 +447,7 @@ class DuplicateFinder:
             size_map.setdefault(size, []).append(entry)
 
         # 只对相同大小的文件计算哈希
-        hash_map: Dict[str, List[Path]] = {}
+        hash_map: dict[str, list[Path]] = {}
         for size, paths in size_map.items():
             if len(paths) < 2:
                 continue
@@ -521,7 +506,7 @@ class MetadataExporter:
     ]
 
     @staticmethod
-    def export(file_paths: List[Path], output_path: Path) -> bool:
+    def export(file_paths: list[Path], output_path: Path) -> bool:
         import csv
         rows = []
         for fp in file_paths:
@@ -566,7 +551,7 @@ class AudioFingerprinter:
     """音频指纹识别 - 基于 chromaprint 生成指纹并比对相似度"""
 
     @staticmethod
-    def fingerprint(file_path: Path) -> Optional[bytes]:
+    def fingerprint(file_path: Path) -> bytes | None:
         """生成原始指纹二进制数据"""
         if not shutil.which('ffmpeg'):
             print("错误: 未安装 ffmpeg")
@@ -591,7 +576,7 @@ class AudioFingerprinter:
         return sum(bin(a[i] ^ b[i]).count('1') for i in range(n))
 
     @staticmethod
-    def compare_and_display(file_paths: List[Path]) -> None:
+    def compare_and_display(file_paths: list[Path]) -> None:
         """生成指纹并两两比对相似度"""
         if not shutil.which('ffmpeg'):
             print("错误: 未安装 ffmpeg")
@@ -606,7 +591,7 @@ class AudioFingerprinter:
                 print(f"✗ 失败: {fp.name}（可能 ffmpeg 未启用 chromaprint）")
 
         if len(prints) >= 2:
-            print(f"\n相似度对比:")
+            print("\n相似度对比:")
             print('-' * 60)
             for i in range(len(prints)):
                 for j in range(i + 1, len(prints)):

@@ -1,31 +1,14 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """工具函数与依赖检查"""
 
-import sys
 import os
+import sys
+
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-import re
-import signal
 import platform
-import subprocess
 import shutil
-import argparse
-import time
-import threading
-import random
-import json
-import hashlib
-import struct
-import zipfile
-import tempfile
-import base64
-import urllib.request
-import urllib.error
-import urllib.parse
+import subprocess
 import unicodedata
-from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
 
 
 def _display_width(s: str) -> int:
@@ -84,11 +67,7 @@ def _truncate_to_width(s: str, max_width: int) -> str:
             ch_w = 0
         elif code < 0x3000:
             w = unicodedata.east_asian_width(ch)
-            if w in ('W', 'F', 'A'):
-                ch_w = 2
-            elif 0x2580 <= code <= 0x259F or 0x25A0 <= code <= 0x25FF:
-                ch_w = 2
-            elif (0x2300 <= code <= 0x23FF or
+            if w in ('W', 'F', 'A') or 0x2580 <= code <= 0x259F or 0x25A0 <= code <= 0x25FF or (0x2300 <= code <= 0x23FF or
                   0x2600 <= code <= 0x26FF or
                   0x2700 <= code <= 0x27BF):
                 ch_w = 2
@@ -103,11 +82,6 @@ def _truncate_to_width(s: str, max_width: int) -> str:
     return ''.join(result)
 
 # 路径常量从 constants.py 导入（向后兼容）
-from mp.constants import (
-    CONFIG_DIR, CONFIG_FILE, PLAYLIST_DIR,
-    FAVORITES_FILE, HISTORY_FILE, RADIO_FILE,
-    UPDATE_CACHE_FILE,
-)
 
 
 
@@ -196,7 +170,6 @@ def check_ffmpeg():
     延迟到实际调用 ffmpeg/ffprobe 时才报错，让 --help、--lyrics 等不依赖
     ffmpeg 的命令仍能正常运行。
     """
-    import shutil
     if not shutil.which('ffmpeg'):
         system = platform.system()
         print("未检测到ffmpeg，正在尝试自动安装...")
