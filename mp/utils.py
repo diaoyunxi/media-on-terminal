@@ -158,23 +158,23 @@ def check_and_install_dependencies():
     if sys.version_info < (3, 8):
         print("错误: 需要Python 3.8或更高版本")
         sys.exit(1)
-    
+
     required_packages = ['pygame']
     missing = []
-    
+
     for package in required_packages:
         try:
             __import__(package)
         except ImportError:
             missing.append(package)
-    
+
     if missing:
         print(f"正在安装缺失的依赖: {', '.join(missing)}")
         install_system_dependencies()
-        
+
         pip_args = get_pip_install_args()
         cmd = [sys.executable, '-m', 'pip', 'install'] + pip_args + missing
-        
+
         try:
             subprocess.check_call(cmd)
             print("依赖安装完成！")
@@ -200,7 +200,7 @@ def check_ffmpeg():
     if not shutil.which('ffmpeg'):
         system = platform.system()
         print("未检测到ffmpeg，正在尝试自动安装...")
-        
+
         try:
             if system == "Darwin":
                 if shutil.which('brew'):
