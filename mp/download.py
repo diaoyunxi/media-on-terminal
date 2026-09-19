@@ -59,6 +59,12 @@ def download_song_interactive(config: 'Config', keyword: str, output_dir: str = 
 
     def _download_url_to_file(url: str, save_path: Path, timeout: int = 120) -> bool:
         """下载 URL 到文件，带进度显示"""
+        # URL scheme 验证：仅允许 http/https，防止 SSRF (file://, ftp:// 等)
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            print(f"[WARNING] 拒绝非 HTTP(S) URL: {parsed.scheme}://...", file=sys.stderr)
+            return False
         try:
             req = urllib.request.Request(url, headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
