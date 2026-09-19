@@ -2,28 +2,12 @@
 # -*- coding: utf-8 -*-
 """媒体处理工具"""
 
-import sys
 import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-import re
-import signal
-import platform
 import subprocess
 import shutil
-import argparse
-import time
-import threading
-import random
 import json
 import hashlib
-import struct
-import zipfile
-import tempfile
-import base64
-import urllib.request
-import urllib.error
-import urllib.parse
-import unicodedata
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 from mp.media_info import MediaInfo
@@ -463,7 +447,7 @@ class DuplicateFinder:
 
         # 只对相同大小的文件计算哈希
         hash_map: Dict[str, List[Path]] = {}
-        for size, paths in size_map.items():
+        for _size, paths in size_map.items():
             if len(paths) < 2:
                 continue
             for p in paths:
