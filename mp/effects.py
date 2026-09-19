@@ -2,32 +2,12 @@
 # -*- coding: utf-8 -*-
 """音频效果器"""
 
-import sys
 import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-import re
-import signal
-import platform
 import subprocess
-import shutil
-import argparse
-import time
-import threading
-import random
-import json
-import hashlib
-import struct
-import zipfile
-import tempfile
-import base64
-import urllib.request
-import urllib.error
-import urllib.parse
-import unicodedata
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
+from typing import List, Optional
 
-from mp.config import Config
 from mp.media_info import MediaInfo
 
 class AudioConverter:
@@ -177,7 +157,7 @@ class Equalizer:
         print(f"{'='*60}")
 
         # 显示频段
-        for i, (freq, gain) in enumerate(zip(self.FREQUENCIES, self.bands)):
+        for _i, (freq, gain) in enumerate(zip(self.FREQUENCIES, self.bands)):
             bar_length = 20
             center = bar_length // 2
             bar = [' '] * bar_length
@@ -263,7 +243,6 @@ class PitchControl:
         # 使用 asetrate + aresample 来改变音调
         # 半音到频率比: ratio = 2^(semitones/12)
         ratio = 2 ** (self.semitones / 12.0)
-        sample_rate = int(44100 * ratio)
         return f'asetrate=44100*{ratio:.6f},aresample=44100'
 
     def reset(self):

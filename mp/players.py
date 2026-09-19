@@ -5,36 +5,20 @@
 import sys
 import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-import re
 import signal
 import platform
 import subprocess
-import shutil
-import argparse
 import time
 import threading
-import random
-import json
-import hashlib
-import struct
-import zipfile
-import tempfile
-import base64
-import urllib.request
-import urllib.error
-import urllib.parse
-import unicodedata
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
 
 from mp.config import Config
 from mp.media_info import MediaInfo
-from mp.managers import BookmarkManager, FavoritesManager, HistoryManager, SleepTimer, ABLoop, RadioManager, QueueManager, StatisticsManager
+from mp.managers import BookmarkManager, FavoritesManager, HistoryManager, SleepTimer, ABLoop, QueueManager, StatisticsManager
 from mp.effects import Equalizer, CrossfadeManager, PitchControl, AudioConverter
 from mp.lyrics import LyricsDisplay
 from mp.visual import AudioVisualizer
 from mp.metadata import MetadataEditor
-from mp.playlist import Playlist
 from mp.utils import _display_width, _truncate_to_width
 
 class AudioPlayer:
