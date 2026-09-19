@@ -31,34 +31,34 @@ from mp.media_info import MediaInfo
 
 class AudioVisualizer:
     """音频可视化器 - 在终端显示音频频谱"""
-    
+
     # ASCII 字符从密集到稀疏
     BLOCK_CHARS = ' ▏▎▍▌▋▊▉█'
-    
+
     def __init__(self, width: int = 60, height: int = 10):
         self.width = width
         self.height = height
         self.fft_data: List[float] = [0.0] * width
         self.smoothing: List[float] = [0.0] * width
         self.smooth_factor = 0.3
-    
+
     def update(self, samples: bytes):
         """更新频谱数据（从PCM样本计算）"""
         try:
             import struct
-            
+
             if len(samples) < 256:
                 return
-            
+
             # 简化频谱计算 - 将字节转换为频谱幅度
             n = len(samples)
             spectrum = [0.0] * self.width
-            
+
             # 将样本分成多个频段
             step = n // (self.width * 4)
             if step < 1:
                 step = 1
-            
+
             for i in range(self.width):
                 start = i * step * 4
                 end = min(start + step * 4, n)
@@ -72,33 +72,33 @@ class AudioVisualizer:
                             sample = struct.unpack('<h', samples[j:j+2])[0] if j + 2 <= len(samples) else 0
                             total += sample * sample
                             count += 1
-                    
+
                     if count > 0:
                         rms = (total / count) ** 0.5
                         # 归一化到0-1
                         normalized = min(1.0, rms / 8000)
                         spectrum[i] = normalized
-            
+
             # 平滑过渡
             for i in range(self.width):
                 self.smoothing[i] = self.smoothing[i] * (1 - self.smooth_factor) + spectrum[i] * self.smooth_factor
-            
+
             self.fft_data = self.smoothing.copy()
-            
+
         except Exception:
             pass
-    
+
     def render(self) -> str:
         """渲染可视化条形图"""
         lines = []
-        
+
         for y in range(self.height - 1, -1, -1):
             line = ''
             threshold = y / self.height
-            
+
             for i in range(self.width):
                 value = self.fft_data[i] if i < len(self.fft_data) else 0
-                
+
                 if value >= threshold:
                     # 根据强度选择字符
                     intensity = int((value - threshold) / (1 - threshold + 0.01) * (len(self.BLOCK_CHARS) - 1))
@@ -106,9 +106,9 @@ class AudioVisualizer:
                     line += self.BLOCK_CHARS[intensity]
                 else:
                     line += ' '
-            
+
             lines.append(line)
-        
+
         return '\n'.join(lines)
 
 

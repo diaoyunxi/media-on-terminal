@@ -79,14 +79,14 @@ def play_playlist(playlist: Playlist, config: Config, loop: str = 'none', explic
     if not playlist.files:
         print("播放列表为空")
         return
-    
+
     playlist.display()
-    
+
     current_file = playlist.get_current()
     while current_file:
         file_ext = current_file.suffix.lower()
         video_extensions = {'.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v'}
-        
+
         if file_ext in video_extensions:
             player = VideoPlayer(current_file, config)
         else:
@@ -95,26 +95,26 @@ def play_playlist(playlist: Playlist, config: Config, loop: str = 'none', explic
         # 播放中按 [l] 切换的模式已通过 config.set 持久化，列表下一曲会自动继承
         if explicit_loop:
             player.loop_mode = loop
-        
+
         # 设置信号处理
         should_stop = False
         should_next = False
-        
+
         def signal_handler(sig, frame):
             nonlocal should_stop
             should_stop = True
             player.stop()
-        
+
         signal.signal(signal.SIGINT, signal_handler)
-        
+
         try:
             player.run()
         except KeyboardInterrupt:
             break
-        
+
         if should_stop:
             break
-        
+
         # 获取下一个文件
         next_file = playlist.next()
         if next_file is None:
@@ -138,10 +138,10 @@ def main():
     if len(sys.argv) > 1 and sys.argv[1] in ['-h', '--help']:
         show_help()
         sys.exit(0)
-    
+
     # 检查依赖
     check_and_install_dependencies()
-    
+
     # 解析参数
     parser = argparse.ArgumentParser(
         prog='mp',
@@ -303,7 +303,7 @@ def main():
     parser.add_argument('--download-output', metavar='DIR', dest='download_output',
                         help='与 --download 配合：指定下载输出目录（默认当前目录）')
     parser.add_argument('files', nargs='*', help='媒体文件路径')
-    
+
     args = parser.parse_args()
 
     if args.help:
@@ -322,7 +322,7 @@ def main():
 
     # 加载配置
     config = Config()
-    
+
     # 处理收藏播放
     if args.favorites:
         favorites_manager = FavoritesManager()
@@ -330,73 +330,73 @@ def main():
         if not fav_files:
             print("收藏列表为空")
             sys.exit(0)
-        
+
         print(f"播放收藏列表 ({len(fav_files)} 首)")
         playlist = Playlist()
         for f in fav_files:
             playlist.add_file(f)
-        
+
         if args.shuffle:
             playlist.shuffle()
-        
+
         play_playlist(playlist, config, args.loop, explicit_loop=bool(args.loop))
         sys.exit(0)
-    
+
     # 处理历史记录
     if args.history:
         history_manager = HistoryManager()
         history_manager.display()
         sys.exit(0)
-    
+
     if args.clear_history:
         history_manager = HistoryManager()
         history_manager.clear()
         sys.exit(0)
-    
+
     # 处理统计相关命令
     if args.stats:
         stats_manager = StatisticsManager()
         stats_manager.display()
         sys.exit(0)
-    
+
     if args.clear_stats:
         stats_manager = StatisticsManager()
         stats_manager.clear()
         sys.exit(0)
-    
+
     # 处理均衡器预设列表
     if args.eq_list:
         eq = Equalizer()
         eq.list_presets()
         sys.exit(0)
-    
+
     # 处理电台相关命令
     radio_manager = RadioManager()
-    
+
     if args.radio_list:
         radio_manager.list_stations()
         sys.exit(0)
-    
+
     if args.radio_add:
         name, url = args.radio_add
         radio_manager.add_station(name, url)
         sys.exit(0)
-    
+
     if args.radio_del:
         radio_manager.remove_station(args.radio_del)
         sys.exit(0)
-    
+
     if args.radio:
         url = radio_manager.get_station_url(args.radio)
         if not url:
             print(f"电台不存在: {args.radio}")
             print("使用 'mp --radio-list' 查看可用电台")
             sys.exit(1)
-        
+
         print(f"正在播放电台: {args.radio}")
         print(f"URL: {url}")
         print("按 Ctrl+C 停止播放\n")
-        
+
         # 使用 ffplay 播放流媒体
         cmd = [
             'ffplay',
@@ -407,7 +407,7 @@ def main():
             '-volume', str(config.get('volume', 100)),
             url
         ]
-        
+
         try:
             # 播放为长进程（用户按 Ctrl+C 或 q 停止），不设 timeout 避免被中途终止
             subprocess.run(cmd)
@@ -439,7 +439,7 @@ def main():
         if not selected_files:
             print("未选择任何文件")
             sys.exit(0)
-        
+
         if len(selected_files) == 1:
             args.files = [str(selected_files[0])]
         else:
@@ -1262,10 +1262,10 @@ def main():
     if not args.files:
         # 无文件参数时默认使用当前目录（v2.11.9 引入）
         args.files = ['.']
-    
+
     # 加载配置
     config = Config()
-    
+
     # 应用命令行参数
     if args.volume is not None:
         config.set('volume', max(0, min(100, args.volume)))
@@ -1273,7 +1273,7 @@ def main():
         config.set('playback_speed', max(0.5, min(2.0, args.speed)))
     if args.loop:
         config.set('loop_mode', args.loop)
-    
+
     # 媒体信息模式
     if args.info:
         for file_path in args.files:
@@ -1284,43 +1284,43 @@ def main():
             else:
                 print(f"文件不存在: {file_path}")
         sys.exit(0)
-    
+
     # 检查是否是目录
     paths = [Path(f) for f in args.files]
     first_path = paths[0]
-    
+
     if first_path.is_dir() or args.playlist or len(paths) > 1:
         # 播放列表模式
         playlist = Playlist()
-        
+
         for path in paths:
             if path.is_dir():
                 playlist.add_directory(path, recursive=True)
             elif path.exists():
                 playlist.add_file(path)
-        
+
         if args.shuffle:
             playlist.shuffle()
-        
+
         play_playlist(playlist, config, args.loop, explicit_loop=bool(args.loop))
     else:
         # 单文件模式
         file_ext = first_path.suffix.lower()
         video_extensions = {'.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v'}
-        
+
         # 创建播放器实例
         if file_ext in video_extensions:
             # 视频文件
             player = VideoPlayer(first_path, config)
-            
+
             # 设置信号处理
             def signal_handler(sig, frame):
                 print("\n退出播放")
                 player.stop()
                 sys.exit(0)
-            
+
             signal.signal(signal.SIGINT, signal_handler)
-            
+
             # 运行视频播放器
             try:
                 player.play()

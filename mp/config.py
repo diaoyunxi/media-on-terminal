@@ -37,7 +37,7 @@ class Config:
     自动 __repr__、字段默认值管理、frozen（不可变）等优势，
     替代当前基于字典的手动管理方式。
     """
-    
+
     DEFAULT_CONFIG = {
         'volume': 100,  # 音量 0-100
         'playback_speed': 1.0,  # 播放速度
@@ -45,11 +45,11 @@ class Config:
         'shuffle': False,  # 随机播放
         'last_directory': str(Path.home()),  # 上次打开的目录
     }
-    
+
     def __init__(self):
         self.config = self.DEFAULT_CONFIG.copy()
         self.load()
-    
+
     def load(self):
         """加载配置"""
         try:
@@ -59,7 +59,7 @@ class Config:
                     self.config.update(saved)
         except Exception:
             pass
-    
+
     def save(self):
         """保存配置"""
         try:
@@ -68,10 +68,10 @@ class Config:
                 json.dump(self.config, f, indent=2)
         except Exception:
             pass
-    
+
     def get(self, key, default=None):
         return self.config.get(key, default)
-    
+
     def set(self, key, value):
         self.config[key] = value
         self.save()

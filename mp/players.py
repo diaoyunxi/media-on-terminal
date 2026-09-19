@@ -39,13 +39,13 @@ from mp.utils import _display_width, _truncate_to_width
 
 class AudioPlayer:
     """音频播放器类"""
-    
+
     def __init__(self, file_path: Path, config: Config):
         self.file_path = Path(file_path)
         if not self.file_path.exists():
             print(f"错误: 文件 '{file_path}' 不存在")
             sys.exit(1)
-        
+
         self.config = config
         self.bookmark_manager = BookmarkManager()
         self.favorites_manager = FavoritesManager()
@@ -57,7 +57,7 @@ class AudioPlayer:
         self.equalizer = Equalizer()
         self.pitch_control = PitchControl()
         self.crossfade = CrossfadeManager()
-        
+
         # 导入 pygame（在依赖检查之后已经导入）
         try:
             import pygame
@@ -75,18 +75,18 @@ class AudioPlayer:
         finally:
             sys.stdout = original_stdout
             devnull_fp.close()
-        
+
         self.is_playing = False
         self.is_paused = False
         self.current_position = 0
         self.total_duration = 0.0
         self.process = None
-        
+
         # 新增功能
         self.volume = config.get('volume', 100)
         self.playback_speed = config.get('playback_speed', 1.0)
         self.loop_mode = config.get('loop_mode', 'none')  # none, single, all
-        
+
         # 歌词和可视化器
         self.lyrics = LyricsDisplay(self.file_path)
         self.visualizer_enabled = False
@@ -96,9 +96,9 @@ class AudioPlayer:
         # 终端显示状态：跟踪上次输出的行数，用于精确清除避免残留
         self._last_display_lines = 0
         self._last_term_width = 0  # 上次终端宽度，用于检测窗口大小变化
-        
+
         self.load_audio()
-    
+
     def get_audio_duration(self):
         """使用ffprobe获取音频时长（秒）"""
         try:
@@ -112,7 +112,7 @@ class AudioPlayer:
         except Exception:
             pass  # ffprobe 获取时长失败，返回 0（调用方会处理未知时长）
         return 0
-    
+
     def load_audio(self):
         """加载音频文件"""
         print(f"正在加载: {self.file_path.name}")
@@ -214,13 +214,13 @@ class AudioPlayer:
             # 避免搜索期间状态被其他线程改变导致状态反转
             if not was_paused and self.is_paused:
                 self.pause()  # 再次切换回播放
-    
+
     def play_from_position(self, position_sec):
         """从指定位置开始播放"""
         if self.process and self.process.poll() is None:
             self.process.terminate()
             time.sleep(0.1)
-        
+
         cmd = [
             'ffplay',
             '-nodisp',
@@ -250,12 +250,12 @@ class AudioPlayer:
         # 应用滤镜
         if audio_filters:
             cmd.extend(['-af', ','.join(audio_filters)])
-        
+
         if position_sec > 0:
             cmd.extend(['-ss', str(position_sec)])
-        
+
         cmd.append(str(self.file_path))
-        
+
         # 使用 subprocess.DEVNULL 替代手动打开的 devnull 文件，避免文件句柄泄漏（Python 3.3+ 内置）
         # 注意：Popen 不支持 timeout 构造参数，进程在 stop() 中通过 wait(timeout=1) 控制超时
         self.process = subprocess.Popen(
@@ -264,19 +264,19 @@ class AudioPlayer:
             stderr=subprocess.PIPE,
             stdin=subprocess.DEVNULL
         )
-        
+
         self.current_position = position_sec * 1000
         self.is_playing = True
         self.is_paused = False
-        
+
         self.progress_thread = threading.Thread(target=self.update_progress, daemon=True)
         self.progress_thread.start()
-        
+
         # 如果启用了可视化器，启动频谱捕获线程
         if self.visualizer_enabled:
             self.spectrum_thread = threading.Thread(target=self.capture_spectrum, daemon=True)
             self.spectrum_thread.start()
-    
+
     def capture_spectrum(self):
         """捕获音频频谱数据"""
         try:
@@ -289,36 +289,36 @@ class AudioPlayer:
                 '-t', '60',  # 每次捕获60秒
                 '-'
             ]
-            
+
             # 注意：Popen 不支持 timeout 构造参数，此进程为持续频谱捕获，由主循环控制生命周期
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL
             )
-            
+
             while self.is_playing and not self.is_paused:
                 data = process.stdout.read(1024 * 10)
                 if not data:
                     break
                 self.visualizer.update(data)
                 time.sleep(0.03)
-            
+
             process.terminate()
         except Exception:
             pass
-    
+
     def update_progress(self):
         """更新播放进度"""
         start_time = time.time()
         start_position = self.current_position
-        
+
         while self.is_playing and not self.is_paused:
             elapsed = int((time.time() - start_time) * 1000 * self.playback_speed)
             self.current_position = min(start_position + elapsed, self.total_duration)
             self.display_progress()
             time.sleep(0.1)
-            
+
             if self.process and self.process.poll() is not None:
                 self.is_playing = False
                 # 清除最后的进度显示并换行，避免残留
@@ -358,48 +358,48 @@ class AudioPlayer:
         percent = self.current_position / self.total_duration if self.total_duration > 0 else 0
         filled = int(bar_length * percent)
         bar = '█' * filled + '─' * (bar_length - filled)
-        
+
         current_time = self.format_time(self.current_position)
         total_time = self.format_time(self.total_duration)
-        
+
         # 显示状态信息
         status_parts = []
         if self.is_paused:
             status_parts.append("⏸ 暂停")
         else:
             status_parts.append("▶ 播放中")
-        
+
         # 音量
         status_parts.append(f"🔊 {self.volume}%")
-        
+
         # 播放速度
         if self.playback_speed != 1.0:
             status_parts.append(f"⚡ {self.playback_speed:.1f}x")
-        
+
         # 循环模式
         if self.loop_mode == 'single':
             status_parts.append("🔁 单曲")
         elif self.loop_mode == 'all':
             status_parts.append("🔄 列表")
-        
+
         # AB循环
         ab_status = self.ab_loop.get_status()
         if ab_status:
             status_parts.append(ab_status)
-        
+
         # 收藏状态
         if self.favorites_manager.is_favorite(self.file_path):
             status_parts.append("❤️")
-        
+
         # 定时停止
         timer_str = self.sleep_timer.format_remaining()
         if timer_str:
             status_parts.append(timer_str)
-        
+
         # 可视化器
         if self.visualizer_enabled:
             status_parts.append("📊 可视化")
-        
+
         # 歌词
         if self.lyrics.enabled and self.lyrics.lyrics:
             if self.lyrics.online_source == "qq":
@@ -522,14 +522,14 @@ class AudioPlayer:
 
         # 记录本次行数，供下次清除
         self._last_display_lines = len(lines)
-    
+
     def format_time(self, ms):
         """格式化时间显示"""
         total_seconds = int(ms // 1000)
         minutes = total_seconds // 60
         seconds = total_seconds % 60
         return f"{minutes:02d}:{seconds:02d}"
-    
+
     def pause(self):
         """暂停/继续"""
         if self.is_playing:
@@ -539,40 +539,40 @@ class AudioPlayer:
                 if self.process:
                     self.process.send_signal(signal.SIGSTOP)
                 self.is_paused = True
-    
+
     def seek(self, delta_ms):
         """前进/后退"""
         new_pos = max(0, min(self.current_position + delta_ms, self.total_duration))
         new_pos_sec = new_pos / 1000
-        
+
         if not self.is_paused:
             self.play_from_position(new_pos_sec)
         else:
             self.current_position = new_pos
             self.display_progress()
-    
+
     def set_volume(self, delta: int):
         """调整音量"""
         self.volume = max(0, min(100, self.volume + delta))
         self.config.set('volume', self.volume)
-        
+
         # 重启播放以应用新音量
         if self.is_playing and not self.is_paused:
             self.play_from_position(self.current_position / 1000)
         else:
             self.display_progress()
-    
+
     def set_speed(self, speed: float):
         """设置播放速度"""
         self.playback_speed = max(0.5, min(2.0, speed))
         self.config.set('playback_speed', self.playback_speed)
-        
+
         # 重启播放以应用新速度
         if self.is_playing and not self.is_paused:
             self.play_from_position(self.current_position / 1000)
         else:
             self.display_progress()
-    
+
     def toggle_loop(self):
         """切换循环模式"""
         modes = ['none', 'single', 'all']
@@ -580,7 +580,7 @@ class AudioPlayer:
         self.loop_mode = modes[(current_idx + 1) % len(modes)]
         self.config.set('loop_mode', self.loop_mode)
         self.display_progress()
-    
+
     def stop(self):
         """停止播放"""
         # 记录播放统计
@@ -593,7 +593,7 @@ class AudioPlayer:
             time.sleep(0.1)
             if self.process.poll() is None:
                 self.process.kill()
-    
+
     def _set_sleep_timer(self):
         """交互式设置定时停止"""
         print("\n定时停止: 输入分钟数 (1-180), 0 取消")
@@ -931,7 +931,7 @@ class AudioPlayer:
 
         self.stop()
         print("\n播放结束")
-    
+
     def _wait_for_resume_key(self, saved_pos):
         """等待用户按键决定是否恢复书签"""
         try:
@@ -947,11 +947,11 @@ class AudioPlayer:
                 import select
                 import termios
                 import tty
-                
+
                 fd = sys.stdin.fileno()
                 old_settings = termios.tcgetattr(fd)
                 tty.setcbreak(fd)
-                
+
                 if select.select([sys.stdin], [], [], 2)[0]:  # 2秒超时
                     ch = sys.stdin.read(1)
                     if ch in ('r', 'R'):
@@ -959,11 +959,11 @@ class AudioPlayer:
                         print(f"\n已从书签恢复: {self.format_time(saved_pos * 1000)}")
                         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
                         return
-                
+
                 termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
         except Exception:
             pass  # 书签恢复交互异常时忽略，正常开始播放
-        
+
         # 超时或按其他键，正常开始播放
         self.play_from_position(0)
 
@@ -972,16 +972,16 @@ class AudioPlayer:
 
 class VideoPlayer:
     """终端视频播放器 - 使用字符渲染视频帧"""
-    
+
     # ASCII 字符梯度（从暗到亮）
     ASCII_CHARS = '@%#*+=-:. '
-    
+
     def __init__(self, file_path: Path, config: Config):
         self.file_path = Path(file_path)
         if not self.file_path.exists():
             print(f"错误: 文件 '{file_path}' 不存在")
             sys.exit(1)
-        
+
         self.config = config
         self.is_playing = False
         self.is_paused = False
@@ -994,15 +994,15 @@ class VideoPlayer:
         self.duration = 0
         self.width = 0
         self.height = 0
-        
+
         # 新增功能
         self.volume = config.get('volume', 100)
         self.playback_speed = config.get('playback_speed', 1.0)
         self.loop_mode = config.get('loop_mode', 'none')
-        
+
         # 获取视频信息
         self._get_video_info()
-    
+
     def _get_video_info(self):
         """获取视频信息"""
         try:
@@ -1015,7 +1015,7 @@ class VideoPlayer:
                 str(self.file_path)
             ]
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            
+
             if result.returncode == 0:
                 lines = result.stdout.strip().split('\n')
                 for line in lines:
@@ -1031,14 +1031,14 @@ class VideoPlayer:
                                 self.fps = float(parts[0])
                             except Exception:
                                 pass  # 帧率解析失败，后续使用默认值
-                        
+
                         # 解析宽度、高度
                         try:
                             self.width = int(parts[1])
                             self.height = int(parts[2])
                         except Exception:
                             pass  # 宽高解析失败，后续使用默认值
-                        
+
                         # 解析时长
                         try:
                             self.duration = float(parts[3])
@@ -1047,12 +1047,12 @@ class VideoPlayer:
                                 self.duration = float(parts[4])
                             except Exception:
                                 pass  # 时长解析失败，后续使用默认值
-                
+
                 if self.fps > 0 and self.duration > 0:
                     self.total_frames = int(self.fps * self.duration)
         except Exception as e:
             print(f"警告: 无法获取视频信息: {e}")
-        
+
         # 默认值：获取失败时使用回退值并提示用户
         info_failed = (self.fps == 0 or self.width == 0 or self.height == 0 or self.duration == 0)
         if info_failed:
@@ -1065,7 +1065,7 @@ class VideoPlayer:
             self.height = 480  # 默认高度
         if self.duration == 0:
             self.duration = 0  # 未知时长，保持 0
-    
+
     def _get_terminal_size(self):
         """获取终端尺寸"""
         try:
@@ -1073,12 +1073,12 @@ class VideoPlayer:
             return size.columns, size.lines
         except Exception:
             return 80, 24  # 非 TTY 环境回退到 80x24
-    
+
     def _pixel_to_char(self, pixel_value):
         """将像素值转换为ASCII字符"""
         index = int(pixel_value * (len(self.ASCII_CHARS) - 1) / 255)
         return self.ASCII_CHARS[index]
-    
+
     def _render_frame(self, frame_data, width, height):
         """渲染一帧到终端
 
@@ -1096,12 +1096,12 @@ class VideoPlayer:
         """
         # 移动到光标起始位置
         sys.stdout.write('\033[H')
-        
+
         # 将帧数据转换为灰度图并渲染
         # 性能瓶颈：逐像素遍历，大分辨率时帧率下降明显
         chars_per_row = width * 3  # RGB
         lines = []
-        
+
         for y in range(height):
             line = []
             for x in range(width):
@@ -1113,10 +1113,10 @@ class VideoPlayer:
                     char = self._pixel_to_char(gray)
                     line.append(char)
             lines.append(''.join(line))
-        
+
         sys.stdout.write('\n'.join(lines))
         sys.stdout.flush()
-    
+
     def _play_audio(self):
         """播放音频轨道"""
         cmd = [
@@ -1128,11 +1128,11 @@ class VideoPlayer:
             '-volume', str(self.volume),
             str(self.file_path)
         ]
-        
+
         # 播放速度
         if self.playback_speed != 1.0:
             cmd.extend(['-af', f'atempo={self.playback_speed}'])
-        
+
         # 使用 subprocess.DEVNULL 替代手动打开的 devnull 文件，避免文件句柄泄漏（Python 3.3+ 内置）
         # 注意：Popen 不支持 timeout 构造参数，进程在 stop() 中通过 wait(timeout=1) 控制超时
         self.audio_process = subprocess.Popen(
@@ -1141,7 +1141,7 @@ class VideoPlayer:
             stderr=subprocess.DEVNULL,
             stdin=subprocess.DEVNULL
         )
-    
+
     def play(self):
         """主播放循环"""
         print(f"\n播放视频: {self.file_path.name}")
@@ -1149,35 +1149,35 @@ class VideoPlayer:
         print(f"时长: {self.format_time(self.duration * 1000)}")
         print(f"帧率: {self.fps:.2f} fps")
         print("\n控制: [空格] 暂停/继续  [↑/↓] 音量  [i] 媒体信息  [q/Ctrl+C] 退出\n")
-        
+
         # 获取终端尺寸
         term_width, term_height = self._get_terminal_size()
-        
+
         # 计算合适的视频尺寸（保持宽高比）
         # 字符宽高比约为 1:2，需要调整
         max_width = term_width
         max_height = (term_height - 2) * 2  # 预留空间给控制信息
-        
+
         aspect_ratio = self.width / self.height if self.height > 0 else 1.33
-        
+
         if max_width / aspect_ratio <= max_height:
             render_width = max_width
             render_height = int(max_width / aspect_ratio / 2)
         else:
             render_height = max_height // 2
             render_width = int(max_height * aspect_ratio / 2)
-        
+
         # 确保尺寸合理
         render_width = max(20, min(render_width, 200))
         render_height = max(10, min(render_height, 80))
-        
+
         # 清空屏幕并隐藏光标
         sys.stdout.write('\033[2J\033[?25l')
         sys.stdout.flush()
-        
+
         # 启动音频播放
         self._play_audio()
-        
+
         # 启动 ffmpeg 进程读取视频帧
         ffmpeg_cmd = [
             'ffmpeg',
@@ -1188,7 +1188,7 @@ class VideoPlayer:
             '-v', 'quiet',
             '-'
         ]
-        
+
         # 注意：Popen 不支持 timeout 构造参数，此进程为视频帧捕获，由主播放循环控制生命周期
         self.ffmpeg_process = subprocess.Popen(
             ffmpeg_cmd,
@@ -1196,25 +1196,25 @@ class VideoPlayer:
             stderr=subprocess.DEVNULL,
             bufsize=render_width * render_height * 3 * 10
         )
-        
+
         self.is_playing = True
         frame_size = render_width * render_height * 3
         frame_delay = 1.0 / self.fps if self.fps > 0 else 0.04
-        
+
         try:
             # 设置非阻塞输入
             if platform.system() != "Windows":
                 import select
                 import termios
                 import tty
-                
+
                 fd = sys.stdin.fileno()
                 old_settings = termios.tcgetattr(fd)
                 tty.setcbreak(fd)
-            
+
             while self.is_playing:
                 start_time = time.time()
-                
+
                 # 读取一帧
                 frame_data = self.ffmpeg_process.stdout.read(frame_size)
                 if len(frame_data) < frame_size:
@@ -1225,7 +1225,7 @@ class VideoPlayer:
                         self.run()
                         return
                     break
-                
+
                 # 检查用户输入
                 if platform.system() == "Windows":
                     import msvcrt
@@ -1270,32 +1270,32 @@ class VideoPlayer:
                                     self._change_volume(5)
                                 elif ch3 == 'B':
                                     self._change_volume(-5)
-                
+
                 if not self.is_paused:
                     # 渲染帧
                     self._render_frame(frame_data, render_width, render_height)
                     self.current_frame += 1
-                
+
                 # 控制帧率
                 elapsed = time.time() - start_time
                 sleep_time = frame_delay - elapsed
                 if sleep_time > 0:
                     time.sleep(sleep_time)
-            
+
         except Exception as e:
             print(f"\n播放错误: {e}")
         finally:
             # 恢复终端设置
             if platform.system() != "Windows":
                 termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-            
+
             # 恢复光标显示
             sys.stdout.write('\033[?25h\033[2J\033[H')
             sys.stdout.flush()
-            
+
             self.stop()
             print("\n播放结束")
-    
+
     def _toggle_pause(self):
         """切换暂停状态"""
         if self.is_paused:
@@ -1312,32 +1312,32 @@ class VideoPlayer:
             # 暂停音频
             if self.audio_process and self.audio_process.poll() is None:
                 self.audio_process.send_signal(signal.SIGSTOP)
-    
+
     def _change_volume(self, delta: int):
         """调整音量"""
         self.volume = max(0, min(100, self.volume + delta))
         self.config.set('volume', self.volume)
         # 显示音量提示（在终端底部）
         print(f"\n音量: {self.volume}%")
-    
+
     def stop(self):
         """停止播放"""
         self.is_playing = False
-        
+
         if self.ffmpeg_process and self.ffmpeg_process.poll() is None:
             self.ffmpeg_process.terminate()
             try:
                 self.ffmpeg_process.wait(timeout=1)
             except Exception:
                 self.ffmpeg_process.kill()  # 等待超时则强制终止
-        
+
         if self.audio_process and self.audio_process.poll() is None:
             self.audio_process.terminate()
             try:
                 self.audio_process.wait(timeout=1)
             except Exception:
                 self.audio_process.kill()  # 等待超时则强制终止
-    
+
     def format_time(self, ms):
         """格式化时间显示"""
         total_seconds = int(ms // 1000)
