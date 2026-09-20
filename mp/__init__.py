@@ -65,6 +65,14 @@ from mp.help_text import show_help
 
 __all__ = [
     "__version__",
+    # Constants (re-exported for backward compatibility)
+    "CONFIG_DIR", "CONFIG_FILE", "PLAYLIST_DIR",
+    "FAVORITES_FILE", "HISTORY_FILE", "RADIO_FILE",
+    "UPDATE_CACHE_FILE", "GITHUB_REPO",
+    # Utils (re-exported for backward compatibility)
+    "_display_width", "_truncate_to_width",
+    "get_pip_install_args", "install_system_dependencies",
+    "check_and_install_dependencies", "check_ffmpeg",
     "Config", "ConfigBackup", "MediaInfo",
     "BookmarkManager", "FavoritesManager", "HistoryManager",
     "SleepTimer", "ABLoop", "RadioManager", "QueueManager", "StatisticsManager",
