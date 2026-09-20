@@ -6,26 +6,11 @@ import sys
 import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
 import re
-import signal
-import platform
-import subprocess
-import shutil
-import argparse
-import time
-import threading
-import random
-import json
-import hashlib
-import struct
-import zipfile
-import tempfile
-import base64
 import urllib.request
 import urllib.error
 import urllib.parse
-import unicodedata
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
+from typing import Optional, Tuple
 
 from mp.lyrics import OnlineLyricsFetcher
 from mp.config import Config

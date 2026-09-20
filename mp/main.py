@@ -7,35 +7,18 @@ import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
 import re
 import signal
-import platform
 import subprocess
-import shutil
 import argparse
-import time
-import threading
-import random
-import json
-import hashlib
-import struct
-import zipfile
-import tempfile
-import base64
-import urllib.request
-import urllib.error
-import urllib.parse
-import unicodedata
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
 
 from mp import __version__
 from mp.config import Config
 from mp.media_info import MediaInfo
-from mp.utils import check_and_install_dependencies, check_ffmpeg
-from mp.constants import GITHUB_REPO, _GITHUB_MIRROR
+from mp.utils import check_and_install_dependencies
 from mp.playlist import Playlist, PlaylistIO
 from mp.players import AudioPlayer, VideoPlayer
 from mp.managers import (
-    BookmarkManager, FavoritesManager, HistoryManager,
+    FavoritesManager, HistoryManager,
     StatisticsManager, RadioManager,
 )
 from mp.effects import Equalizer
@@ -57,7 +40,7 @@ from mp.media_tools import (
 )
 from mp.effects import (
     FadeEffect, ReverbEffect, AudioNormalizer, VolumeGain, VolumeRamp,
-    AudioConverter, CrossfadeManager, PitchControl,
+    AudioConverter,
 )
 from mp.visual import (
     SpectrogramGenerator, WaveformGenerator, CoverExtractor, AsciiArtExporter,
