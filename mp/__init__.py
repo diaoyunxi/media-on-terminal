@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """mp - Terminal Media Player 包
 
 将原 9488 行单文件拆分为功能模块的包。
