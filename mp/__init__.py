@@ -83,4 +83,11 @@ __all__ = [
     "MediaHealthChecker", "DuplicateFinder", "MetadataExporter", "AudioFingerprinter",
     "MediaLibrary", "check_for_update", "download_song_interactive",
     "show_help",
+    # Re-exported constants and utilities
+    "CONFIG_DIR", "CONFIG_FILE", "PLAYLIST_DIR",
+    "FAVORITES_FILE", "HISTORY_FILE", "RADIO_FILE",
+    "UPDATE_CACHE_FILE", "GITHUB_REPO",
+    "_display_width", "_truncate_to_width",
+    "get_pip_install_args", "install_system_dependencies",
+    "check_and_install_dependencies", "check_ffmpeg",
 ]
