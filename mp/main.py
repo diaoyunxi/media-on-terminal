@@ -100,7 +100,7 @@ def play_playlist(playlist: Playlist, config: Config, loop: str = 'none', explic
         should_stop = False
         should_next = False
         
-        def signal_handler(sig, frame):
+        def signal_handler(sig, frame, player=player):
             nonlocal should_stop
             should_stop = True
             player.stop()
