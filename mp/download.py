@@ -140,7 +140,7 @@ def download_song_interactive(config: 'Config', keyword: str, output_dir: str = 
                         try:
                             proc.stdin.write(b' ')
                             proc.stdin.flush()
-                        except Exception:
+                        except (OSError, IOError):
                             pass
                     elif ch == '\x1b':
                         # 可能是 Escape 键或方向键开头
@@ -149,7 +149,7 @@ def download_song_interactive(config: 'Config', keyword: str, output_dir: str = 
                         try:
                             while select.select([sys.stdin], [], [], 0.05)[0]:
                                 seq += sys.stdin.read(1)
-                        except Exception:
+                        except (OSError, IOError):
                             pass
                         if seq:
                             # 方向键序列，转发给 ffplay
@@ -172,7 +172,7 @@ def download_song_interactive(config: 'Config', keyword: str, output_dir: str = 
                         try:
                             proc.stdin.write(ch.encode())
                             proc.stdin.flush()
-                        except Exception:
+                        except (OSError, IOError):
                             pass
             if proc.poll() is not None and not choice:
                 # 播放完毕，等待用户选择
