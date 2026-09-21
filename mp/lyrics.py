@@ -209,7 +209,7 @@ class LyricsDisplay:
                     if artist:
                         return f"{artist} {title}"
                     return title
-        except Exception:
+        except (OSError, IOError, UnicodeDecodeError):
             pass
         # 2. 回退到清洗后的文件名
         return OnlineLyricsFetcher._normalize_filename(file_path.stem)
@@ -508,7 +508,7 @@ class OnlineLyricsFetcher:
                 mid = s.get("songmid", "") or ""
                 if name and mid:
                     candidates.append((name, artists, "qq", mid))
-        except Exception:
+        except (OSError, IOError, UnicodeDecodeError):
             pass
         # 网易云候选（去重，避免与QQ同名重复展示）
         try:
@@ -518,7 +518,7 @@ class OnlineLyricsFetcher:
                 sid = s.get("id", 0) or 0
                 if name and sid and not any(c[0] == name and c[1] == artists for c in candidates):
                     candidates.append((name, artists, "netease", str(sid)))
-        except Exception:
+        except (OSError, IOError, UnicodeDecodeError):
             pass
         # 酷狗候选（去重）
         try:
@@ -528,7 +528,7 @@ class OnlineLyricsFetcher:
                 hash_id = s.get("hash", "") or ""
                 if name and hash_id and not any(c[0] == name and c[1] == artists for c in candidates):
                     candidates.append((name, artists, "kugou", hash_id))
-        except Exception:
+        except (OSError, IOError, UnicodeDecodeError):
             pass
         return candidates
 
