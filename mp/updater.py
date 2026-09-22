@@ -42,6 +42,16 @@ def _github_url(url: str) -> str:
     return f"{_GITHUB_MIRROR}/{url}"
 
 
+def _validate_url_scheme(url: str, allowed: tuple = ("http", "https")) -> bool:
+    """校验 URL scheme 是否安全，防止 SSRF 通过 file:// / ftp:// 等协议访问本地资源 (CWE-918)"""
+    try:
+        scheme = urllib.parse.urlparse(url).scheme.lower()
+        return scheme in allowed
+    except Exception:
+        return False
+
+
+
 
 def _fetch_latest_version_github():
     """从 GitHub 获取最新版本号及 Release 信息（优先 Releases，回退 Tags）
