@@ -360,6 +360,11 @@ class OnlineLyricsFetcher:
         headers = {"User-Agent": OnlineLyricsFetcher.UA}
         if extra_headers:
             headers.update(extra_headers)
+        # SSRF 防护：仅允许 http/https 协议 (CWE-918)
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            logger.warning("拒绝非 HTTP(S) URL: %s", url)
+            return None
         req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=OnlineLyricsFetcher.TIMEOUT) as resp:
             return resp.read().decode("utf-8", errors="replace")
