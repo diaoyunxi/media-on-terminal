@@ -1,0 +1,11 @@
+[project]
+name = "media-on-terminal"
+dynamic = ["version"]
+description = "终端多媒体播放与管理工具"
+requires-python = ">=3.8"
+dependencies = [
+    "pygame>=2.5.0",
+]
+
+[project.scripts]
+media-player = "mp.main:main"
