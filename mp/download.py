@@ -44,7 +44,6 @@ def download_song_interactive(config: 'Config', keyword: str, output_dir: str = 
     :param keyword: 搜索关键词，'__interactive__' 表示进入交互搜索
     :param output_dir: 下载输出目录，默认当前目录
     """
-    import subprocess
     import select
 
     out_dir = Path(output_dir) if output_dir else Path.cwd()

@@ -196,7 +196,6 @@ def check_ffmpeg():
     延迟到实际调用 ffmpeg/ffprobe 时才报错，让 --help、--lyrics 等不依赖
     ffmpeg 的命令仍能正常运行。
     """
-    import shutil
     if not shutil.which('ffmpeg'):
         system = platform.system()
         print("未检测到ffmpeg，正在尝试自动安装...")
