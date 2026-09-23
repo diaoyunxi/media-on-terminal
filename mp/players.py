@@ -515,7 +515,7 @@ class AudioPlayer:
 
         # 多行情况：每行输出后换行，最后一行也换行（光标停在最后一行的下一行行首）
         # 这样下次刷新时，光标位置 = 上次输出最后一行的下一行，上移 n-1 行即回到第一行
-        for i, line in enumerate(lines):
+        for _i, line in enumerate(lines):
             sys.stdout.write(line)
             sys.stdout.write("\033[K\n")  # 清除行尾 + 换行（最后一行也换行）
         sys.stdout.flush()
@@ -1099,7 +1099,7 @@ class VideoPlayer:
         
         # 将帧数据转换为灰度图并渲染
         # 性能瓶颈：逐像素遍历，大分辨率时帧率下降明显
-        chars_per_row = width * 3  # RGB
+        _chars_per_row = width * 3  # RGB
         lines = []
         
         for y in range(height):
