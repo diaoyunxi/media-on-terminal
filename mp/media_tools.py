@@ -134,13 +134,13 @@ class SilenceCutter:
                     val = float(line.split('silence_start:')[1].split()[0])
                     starts.append(val)
                 except (ValueError, IndexError):
-                    pass
+                    pass  # TODO: add proper error handling
             elif 'silence_end:' in line:
                 try:
                     val = float(line.split('silence_end:')[1].split()[0])
                     ends.append(val)
                 except (ValueError, IndexError):
-                    pass
+                    pass  # TODO: add proper error handling
         segments = []
         n = min(len(starts), len(ends))
         for i in range(n):

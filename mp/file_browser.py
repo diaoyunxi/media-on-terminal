@@ -57,7 +57,7 @@ class FileBrowser:
                 elif entry.is_file() and entry.suffix.lower() in self.MEDIA_EXTENSIONS:
                     files.append(entry)
         except PermissionError:
-            pass
+            pass  # TODO: add proper error handling
         self.entries = dirs + files
         self.cursor = min(self.cursor, max(0, len(self.entries) - 1))
 
