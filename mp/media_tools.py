@@ -469,7 +469,8 @@ class DuplicateFinder:
             for p in paths:
                 try:
                     h = DuplicateFinder._file_hash(p)
-                except Exception:
+                except Exception as e:
+                    print(f"⚠ 无法计算哈希: {p} ({e})")
                     continue
                 hash_map.setdefault(h, []).append(p)
 
