@@ -212,6 +212,7 @@ def download_song_interactive(config: 'Config', keyword: str, output_dir: str = 
     # ===== 主流程 =====
     current_keyword = keyword if keyword != '__interactive__' else None
 
+    _max_iter = 1000000  # Safety limit
     while True:
         # 步骤1: 获取搜索关键词
         if not current_keyword:
