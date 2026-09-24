@@ -101,7 +101,7 @@ class MediaInfo:
                                 info['fps'] = float(num) / float(den)
         
         except Exception:
-            pass
+            pass  # TODO: add proper error handling
         
         return info
     

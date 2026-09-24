@@ -51,7 +51,7 @@ class MediaLibrary:
                     saved = json.load(f)
                     self.library.update(saved)
         except Exception:
-            pass
+            pass  # TODO: add proper error handling
 
     def save(self):
         try:
@@ -59,7 +59,7 @@ class MediaLibrary:
             with open(self.LIBRARY_FILE, 'w', encoding='utf-8') as f:
                 json.dump(self.library, f, indent=2, ensure_ascii=False)
         except Exception:
-            pass
+            pass  # TODO: add proper error handling
 
     def scan(self, directory: Path, recursive: bool = True) -> int:
         """扫描目录，建立媒体库索引"""
