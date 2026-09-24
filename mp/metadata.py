@@ -18,6 +18,8 @@ import json
 import hashlib
 import struct
 import zipfile
+from .audio_tools import AudioExtractor
+from .effects import AudioConverter
 import tempfile
 import base64
 import urllib.request
