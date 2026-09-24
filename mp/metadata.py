@@ -27,6 +27,8 @@ import unicodedata
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 from mp.media_info import MediaInfo
+from mp.audio_tools import AudioExtractor
+from mp.effects import AudioConverter
 
 
 class MetadataEditor:
