@@ -98,7 +98,7 @@ def play_playlist(playlist: Playlist, config: Config, loop: str = 'none', explic
         
         # 设置信号处理
         should_stop = False
-        should_next = False
+        _should_next = False
         
         def signal_handler(sig, frame):
             nonlocal should_stop

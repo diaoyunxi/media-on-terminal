@@ -177,7 +177,7 @@ class Equalizer:
         print(f"{'='*60}")
 
         # 显示频段
-        for i, (freq, gain) in enumerate(zip(self.FREQUENCIES, self.bands)):
+        for _i, (freq, gain) in enumerate(zip(self.FREQUENCIES, self.bands)):
             bar_length = 20
             center = bar_length // 2
             bar = [' '] * bar_length
@@ -263,7 +263,7 @@ class PitchControl:
         # 使用 asetrate + aresample 来改变音调
         # 半音到频率比: ratio = 2^(semitones/12)
         ratio = 2 ** (self.semitones / 12.0)
-        sample_rate = int(44100 * ratio)
+        _sample_rate = int(44100 * ratio)
         return f'asetrate=44100*{ratio:.6f},aresample=44100'
 
     def reset(self):

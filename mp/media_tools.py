@@ -463,7 +463,7 @@ class DuplicateFinder:
 
         # 只对相同大小的文件计算哈希
         hash_map: Dict[str, List[Path]] = {}
-        for size, paths in size_map.items():
+        for _size, paths in size_map.items():
             if len(paths) < 2:
                 continue
             for p in paths:

@@ -619,9 +619,8 @@ class OnlineLyricsFetcher:
         self._cached_candidates = []
         try:
             candidates = self._collect_candidates(keyword)
-        except Exception as e:
+        except Exception:
             return "network_error", None, None
-        self._cached_candidates = candidates
 
         if not candidates:
             return "no_result", None, None
