@@ -600,7 +600,7 @@ class StatisticsManager:
     def display(self):
         """显示统计信息"""
         print(f"\n{'='*60}")
-        print(f"  播放统计")
+        print("  播放统计")
         print(f"{'='*60}")
 
         # 总体统计
@@ -612,21 +612,21 @@ class StatisticsManager:
 
         # 格式统计
         if self.stats['songs_by_format']:
-            print(f"\n  格式分布:")
+            print("\n  格式分布:")
             sorted_formats = sorted(self.stats['songs_by_format'].items(), key=lambda x: x[1], reverse=True)
             for fmt, count in sorted_formats[:5]:
                 print(f"    {fmt.upper():6s}: {count:3d} 首")
 
         # 最常播放
         if self.stats['most_played']:
-            print(f"\n  最常播放 (Top 5):")
+            print("\n  最常播放 (Top 5):")
             sorted_songs = sorted(self.stats['most_played'].items(), key=lambda x: x[1], reverse=True)
             for i, (path, count) in enumerate(sorted_songs[:5], 1):
                 name = Path(path).name
                 print(f"    {i}. {name} ({count}次)")
 
         # 最近7天
-        print(f"\n  最近7天:")
+        print("\n  最近7天:")
         for i in range(6, -1, -1):
             date = (time.time() - i * 86400)
             date_str = time.strftime('%Y-%m-%d', time.localtime(date))

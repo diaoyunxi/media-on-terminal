@@ -238,7 +238,7 @@ class VideoConcat:
                    str(output_path)]
 
             print(f"拼接: {len(input_files)} 个文件 → {output_path.name}")
-            print(f"  （要求各文件编码/分辨率/时基一致，否则需先统一格式）")
+            print("  （要求各文件编码/分辨率/时基一致，否则需先统一格式）")
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 拼接完成: {output_path.name}")
@@ -246,7 +246,7 @@ class VideoConcat:
                 return True
             # 流复制失败时提示
             print(f"✗ 流复制拼接失败: {result.stderr.strip()}")
-            print(f"  提示: 各文件编码不一致时，请先用 --convert 或 ffmpeg 统一格式后再拼接")
+            print("  提示: 各文件编码不一致时，请先用 --convert 或 ffmpeg 统一格式后再拼接")
             return False
         except Exception as e:
             print(f"✗ 错误: {e}")

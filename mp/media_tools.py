@@ -606,7 +606,7 @@ class AudioFingerprinter:
                 print(f"✗ 失败: {fp.name}（可能 ffmpeg 未启用 chromaprint）")
 
         if len(prints) >= 2:
-            print(f"\n相似度对比:")
+            print("\n相似度对比:")
             print('-' * 60)
             for i in range(len(prints)):
                 for j in range(i + 1, len(prints)):

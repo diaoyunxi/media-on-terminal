@@ -132,7 +132,7 @@ class ConfigBackup:
             return False
 
         if input_path.suffix.lower() != '.zip':
-            print(f"✗ 仅支持 .zip 备份文件")
+            print("✗ 仅支持 .zip 备份文件")
             return False
 
         print(f"恢复配置: {input_path} → {CONFIG_DIR}")

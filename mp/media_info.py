@@ -132,7 +132,7 @@ class MediaInfo:
     def display_info(info: Dict[str, Any]):
         """显示媒体信息"""
         print(f"\n{'='*60}")
-        print(f"  媒体信息")
+        print("  媒体信息")
         print(f"{'='*60}")
         print(f"  文件名: {info['name']}")
         print(f"  格式: {info['format'].upper()}")
@@ -151,14 +151,14 @@ class MediaInfo:
         
         # 音频信息
         if info['channels'] > 0:
-            print(f"\n  --- 音频 ---")
+            print("\n  --- 音频 ---")
             print(f"  编码: {info['codec'].upper()}")
             print(f"  采样率: {info['sample_rate']} Hz")
             print(f"  声道: {info['channels']}")
         
         # 视频信息
         if info['width'] > 0:
-            print(f"\n  --- 视频 ---")
+            print("\n  --- 视频 ---")
             print(f"  分辨率: {info['width']}x{info['height']}")
             if info['fps'] > 0:
                 print(f"  帧率: {info['fps']:.2f} fps")

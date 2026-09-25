@@ -778,7 +778,7 @@ class AudioPlayer:
                             print(f"\n交叉淡入淡出: {'开启' if enabled else '关闭'}")
                         elif key == b'X':
                             self.pitch_control.reset()
-                            print(f"\n音调已重置")
+                            print("\n音调已重置")
                             self.play_from_position(self.current_position / 1000)
                         elif key == b'N':
                             # 清除进度显示，避免和交互界面叠加残留
@@ -902,7 +902,7 @@ class AudioPlayer:
                                 print(f"\n交叉淡入淡出: {'开启' if enabled else '关闭'}")
                             elif ch == 'X':
                                 self.pitch_control.reset()
-                                print(f"\n音调已重置")
+                                print("\n音调已重置")
                                 self.play_from_position(self.current_position / 1000)
                             elif ch == 'N':
                                 # 先清除进度显示，避免和交互界面叠加残留

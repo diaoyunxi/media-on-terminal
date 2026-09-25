@@ -340,7 +340,7 @@ class AsciiArtExporter:
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(f"# ASCII 艺术动画 - {video_path.name}\n")
                 f.write(f"# 分辨率: {width}x{height} @ {fps}fps，共 {total_frames} 帧\n")
-                f.write(f"# 播放: 用 less/cat 查看静态帧；动画播放请用原视频\n\n")
+                f.write("# 播放: 用 less/cat 查看静态帧；动画播放请用原视频\n\n")
                 for i, frame in enumerate(frames_text):
                     f.write(f"--- 帧 {i + 1}/{total_frames} ---\n")
                     f.write(frame)
