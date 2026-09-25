@@ -80,7 +80,7 @@ class AudioConverter:
         cmd.append(str(output_path))
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0:
                 print(f"✓ 转换成功: {output_path.name}")
                 return True
@@ -331,7 +331,7 @@ class FadeEffect:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 淡入淡出完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -395,7 +395,7 @@ class ReverbEffect:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 混响完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -462,7 +462,7 @@ class AudioNormalizer:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode != 0 or not tmp.exists():
                 print(f"✗ 归一化失败: {result.stderr.strip()}")
                 if tmp.exists():
@@ -531,7 +531,7 @@ class VolumeGain:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -600,7 +600,7 @@ class VolumeRamp:
         direction = "渐强" if end_db > start_db else ("渐弱" if end_db < start_db else "恒定")
         print(f"音量{direction}: {start_db:+.1f}dB → {end_db:+.1f}dB ({file_path.name})")
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")

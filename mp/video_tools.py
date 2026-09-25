@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 """视频工具集"""
 
+import logging
+logger = logging.getLogger(__name__)
 import sys
 import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
@@ -75,7 +77,7 @@ class GifConverter:
                 '-vf', f'fps={fps},scale={width}:-1:flags=lanczos,palettegen',
                 str(palette_path)
             ]
-            r1 = subprocess.run(cmd1, capture_output=True, text=True, timeout=30)
+            r1 = subprocess.run(cmd1, capture_output=True, text=True, timeout=30, check=False)
             if r1.returncode != 0:
                 print(f"✗ 生成调色板失败: {r1.stderr.strip()}")
                 return False
@@ -88,7 +90,7 @@ class GifConverter:
                 '-lavfi', f'fps={fps},scale={width}:-1:flags=lanczos [x]; [x][1:v] paletteuse',
                 str(output_path)
             ]
-            r2 = subprocess.run(cmd2, capture_output=True, text=True, timeout=30)
+            r2 = subprocess.run(cmd2, capture_output=True, text=True, timeout=30, check=False)
 
             # 清理调色板
             if palette_path.exists():
@@ -148,7 +150,7 @@ class ScreenshotCapture:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 截图成功: {output_path.name}")
                 if info.get('width'):
@@ -239,7 +241,7 @@ class VideoConcat:
 
             print(f"拼接: {len(input_files)} 个文件 → {output_path.name}")
             print(f"  （要求各文件编码/分辨率/时基一致，否则需先统一格式）")
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 拼接完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -255,7 +257,7 @@ class VideoConcat:
             try:
                 os.unlink(list_path)
             except OSError:
-                pass
+                logger.debug("video_tools: 静默异常已捕获", exc_info=True)
 
 
 
@@ -298,7 +300,7 @@ class VideoScaler:
         print(f"缩放: {video_path.name} → {width}x{height}"
               f"{' (保持宽高比)' if keep_aspect else ' (强制拉伸)'}")
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 缩放完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -351,7 +353,7 @@ class VideoRotator:
 
         print(f"旋转: {video_path.name} → 顺时针 {degrees}°")
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 旋转完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -408,7 +410,7 @@ class VideoCropper:
 
         print(f"裁剪: {video_path.name} 画面 ({x},{y}) + {width}x{height}")
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 裁剪完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -454,7 +456,7 @@ class FpsConverter:
 
         print(f"帧率转换: {video_path.name} → {fps} fps")
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 转换完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -517,7 +519,7 @@ class ContactSheet:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 缩略图组合已生成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")

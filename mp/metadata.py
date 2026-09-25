@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 """元数据编辑"""
 
+import logging
+logger = logging.getLogger(__name__)
 import sys
 import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
@@ -52,14 +54,14 @@ class MetadataEditor:
                 '-show_format',
                 str(file_path)
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0:
                 data = json.loads(result.stdout)
                 fmt_tags = data.get('format', {}).get('tags', {})
                 for key, value in fmt_tags.items():
                     tags[key.upper()] = value
         except Exception:
-            pass
+            logger.debug("metadata: 静默异常已捕获", exc_info=True)
         return tags
 
     @staticmethod
@@ -81,7 +83,7 @@ class MetadataEditor:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0:
                 # 替换原文件
                 temp_path.replace(file_path)
@@ -167,7 +169,7 @@ class MetadataEditor:
                     else:
                         print("✗ 更新失败")
         except (ValueError, EOFError):
-            pass
+            logger.debug("metadata: 静默异常已捕获", exc_info=True)
 
 
 
@@ -226,7 +228,7 @@ class BatchRenamer:
                     '-print_format', 'json', '-show_format',
                     str(entry)
                 ]
-                r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
                 if r.returncode == 0:
                     data = json.loads(r.stdout)
                     tags = data.get('format', {}).get('tags', {})
@@ -239,7 +241,7 @@ class BatchRenamer:
                             track = str(tags[k]).split('/')[0]
                             break
             except Exception:
-                pass
+                logger.debug("metadata: 静默异常已捕获", exc_info=True)
 
             new_name = pattern.format(
                 title=BatchRenamer._sanitize(title),
@@ -308,7 +310,7 @@ class MetadataStripper:
 
         print(f"剥离元数据: {file_path.name}")
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0 and output_path.exists():
                 src_size = file_path.stat().st_size
                 dst_size = output_path.stat().st_size
@@ -362,7 +364,7 @@ class BPMDetector:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, timeout=30, check=False)
             if result.returncode != 0 or not result.stdout:
                 print("✗ 无法读取音频数据")
                 return None
@@ -454,12 +456,12 @@ class SubtitleExtractor:
             str(video_path)
         ]
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0:
                 data = json.loads(result.stdout)
                 return data.get('streams', [])
         except Exception:
-            pass
+            logger.debug("metadata: 静默异常已捕获", exc_info=True)
         return []
 
     @staticmethod
@@ -512,7 +514,7 @@ class SubtitleExtractor:
         ] + codec_args + [str(output_path)]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0 and output_path.exists():
                 size = output_path.stat().st_size
                 if size == 0:

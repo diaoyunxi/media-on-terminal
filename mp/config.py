@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 """配置管理"""
 
+import logging
+logger = logging.getLogger(__name__)
 import sys
 import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
@@ -58,7 +60,7 @@ class Config:
                     saved = json.load(f)
                     self.config.update(saved)
         except Exception:
-            pass
+            logger.debug("config: 静默异常已捕获", exc_info=True)
     
     def save(self):
         """保存配置"""
@@ -67,7 +69,7 @@ class Config:
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f, indent=2)
         except Exception:
-            pass
+            logger.debug("config: 静默异常已捕获", exc_info=True)
     
     def get(self, key, default=None):
         return self.config.get(key, default)

@@ -133,7 +133,7 @@ def install_system_dependencies():
     system = platform.system()
     if system == "Linux":
         try:
-            if subprocess.run(['which', 'apt'], capture_output=True, timeout=30).returncode == 0:
+            if subprocess.run(['which', 'apt'], capture_output=True, timeout=30, check=False).returncode == 0:
                 # 添加用户确认，避免未经授权自动使用 sudo
                 try:
                     confirm = input("即将使用 sudo 安装系统依赖 (libsdl2-2.0-0, libsdl2-mixer-2.0-0)，是否继续？(y/N): ")

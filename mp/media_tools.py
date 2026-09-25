@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 """媒体处理工具"""
 
+import logging
+logger = logging.getLogger(__name__)
 import sys
 import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
@@ -83,7 +85,7 @@ class MediaSplitter:
                        '-ss', f'{start:.3f}', '-t', f'{seg_dur:.3f}',
                        '-i', str(file_path),
                        '-c', 'copy', str(out)]
-                if subprocess.run(cmd, capture_output=True, timeout=30).returncode == 0 and out.exists():
+                if subprocess.run(cmd, capture_output=True, timeout=30).returncode == 0 and out.exists(, check=False):
                     count += 1
                     print(f"  ✓ {out.name}")
         else:
@@ -101,7 +103,7 @@ class MediaSplitter:
                        '-ss', f'{start:.3f}', '-t', f'{t:.3f}',
                        '-i', str(file_path),
                        '-c', 'copy', str(out)]
-                if subprocess.run(cmd, capture_output=True, timeout=30).returncode == 0 and out.exists():
+                if subprocess.run(cmd, capture_output=True, timeout=30).returncode == 0 and out.exists(, check=False):
                     count += 1
                     print(f"  ✓ {out.name}")
                 start += t
@@ -124,7 +126,7 @@ class SilenceCutter:
             '-f', 'null', '-'
         ]
         # silencedetect 信息输出在 stderr，需要 info 级别
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
         starts = []
         ends = []
         for line in result.stderr.splitlines():
@@ -134,13 +136,13 @@ class SilenceCutter:
                     val = float(line.split('silence_start:')[1].split()[0])
                     starts.append(val)
                 except (ValueError, IndexError):
-                    pass
+                    logger.debug("media_tools: 静默异常已捕获", exc_info=True)
             elif 'silence_end:' in line:
                 try:
                     val = float(line.split('silence_end:')[1].split()[0])
                     ends.append(val)
                 except (ValueError, IndexError):
-                    pass
+                    logger.debug("media_tools: 静默异常已捕获", exc_info=True)
         segments = []
         n = min(len(starts), len(ends))
         for i in range(n):
@@ -211,7 +213,7 @@ class SilenceCutter:
 
         print(f"静音裁剪: {file_path.name} (阈值 {threshold_db}dB，最短 {min_duration}秒)")
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0 and output_path.exists():
                 old_dur = info.get('duration', 0)
                 new_info = MediaInfo.get_info(output_path)
@@ -310,7 +312,7 @@ class SegmentRepeater:
         print(f"片段重复: {file_path.name} [{start:.2f}s→{end:.2f}s] x {times} + 尾段")
         print(f"  输出预计时长: {total_audio_duration:.2f}s (原 {duration:.2f}s)")
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -354,7 +356,7 @@ class MediaHealthChecker:
             '-show_format', '-show_streams',
             str(file_path)
         ]
-        probe = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=30)
+        probe = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=30, check=False)
         if probe.returncode != 0:
             result['errors'].append(f'容器解析失败: {probe.stderr.strip()}')
             return result
@@ -375,7 +377,7 @@ class MediaHealthChecker:
             '-i', str(file_path),
             '-f', 'null', '-'
         ]
-        decode = subprocess.run(decode_cmd, capture_output=True, text=True, timeout=30)
+        decode = subprocess.run(decode_cmd, capture_output=True, text=True, timeout=30, check=False)
         if decode.returncode == 0 and not decode.stderr.strip():
             result['decodable'] = True
         else:
@@ -577,11 +579,11 @@ class AudioFingerprinter:
                '-fp_format', 'raw',
                '-']
         try:
-            result = subprocess.run(cmd, capture_output=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, timeout=30, check=False)
             if result.returncode == 0 and result.stdout:
                 return result.stdout
         except Exception:
-            pass
+            logger.debug("media_tools: 静默异常已捕获", exc_info=True)
         return None
 
     @staticmethod

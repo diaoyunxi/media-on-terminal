@@ -86,7 +86,7 @@ class AudioRecorder:
 
         try:
             # 录制为长进程（用户按 Ctrl+C 停止），不设 timeout 避免被中途终止
-            subprocess.run(cmd)
+            subprocess.run(cmd, check=False)
             if output_path.exists() and output_path.stat().st_size > 0:
                 print(f"\n✓ 录制完成: {output_path}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -192,7 +192,7 @@ class AudioExtractor:
         cmd.append(str(output_path))
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 提取成功: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -270,7 +270,7 @@ class AudioTrimmer:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 裁剪完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -284,7 +284,7 @@ class AudioTrimmer:
                 '-i', str(file_path),
                 str(output_path)
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 裁剪完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -342,7 +342,7 @@ class AudioMerger:
         ] + fmt_args + [str(output_path)])
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 合并完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -379,7 +379,7 @@ class AudioReverser:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 反向完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -439,7 +439,7 @@ class ChannelConverter:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -501,7 +501,7 @@ class SampleRateConverter:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -584,7 +584,7 @@ class AVMuxer:
             ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 合成完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -644,7 +644,7 @@ class AudioMixMixer:
         for i, f in enumerate(input_files, 1):
             print(f"  [{i}/{n}] {f.name}")
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 混音完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -712,7 +712,7 @@ class RingtoneMaker:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 铃声已生成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -728,7 +728,7 @@ class RingtoneMaker:
                 f'afade=t=out:st={duration - fade_out:.2f}:d={fade_out:.2f}',
                 str(output_path)
             ]
-            result = subprocess.run(cmd_fallback, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd_fallback, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 铃声已生成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")

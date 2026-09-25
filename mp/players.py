@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 """音频/视频播放器"""
 
+import logging
+logger = logging.getLogger(__name__)
 import sys
 import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
@@ -106,7 +108,7 @@ class AudioPlayer:
                 'ffprobe', '-v', 'error', '-show_entries', 'format=duration',
                 '-of', 'default=noprint_wrappers=1:nokey=1', str(self.file_path)
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0 and result.stdout.strip():
                 return float(result.stdout.strip())
         except Exception:
@@ -306,7 +308,7 @@ class AudioPlayer:
             
             process.terminate()
         except Exception:
-            pass
+            logger.debug("players: 静默异常已捕获", exc_info=True)
     
     def update_progress(self):
         """更新播放进度"""
@@ -625,7 +627,7 @@ class AudioPlayer:
             except ValueError:
                 print("无效输入")
         except Exception:
-            pass
+            logger.debug("players: 静默异常已捕获", exc_info=True)
 
     def _handle_ab_loop(self):
         """处理AB循环设置"""
@@ -1014,7 +1016,7 @@ class VideoPlayer:
                 '-of', 'csv=p=0',
                 str(self.file_path)
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             
             if result.returncode == 0:
                 lines = result.stdout.strip().split('\n')

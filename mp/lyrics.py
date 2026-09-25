@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 """歌词显示与在线搜索"""
 
+import logging
+logger = logging.getLogger(__name__)
 import sys
 import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
@@ -197,7 +199,7 @@ class LyricsDisplay:
                 '-show_format',
                 str(file_path)
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0:
                 data = json.loads(result.stdout)
                 tags = data.get('format', {}).get('tags', {}) or {}
@@ -210,7 +212,7 @@ class LyricsDisplay:
                         return f"{artist} {title}"
                     return title
         except Exception:
-            pass
+            logger.debug("lyrics: 静默异常已捕获", exc_info=True)
         # 2. 回退到清洗后的文件名
         return OnlineLyricsFetcher._normalize_filename(file_path.stem)
 
@@ -509,7 +511,7 @@ class OnlineLyricsFetcher:
                 if name and mid:
                     candidates.append((name, artists, "qq", mid))
         except Exception:
-            pass
+            logger.debug("lyrics: 静默异常已捕获", exc_info=True)
         # 网易云候选（去重，避免与QQ同名重复展示）
         try:
             for s in self._netease_search(keyword):
@@ -519,7 +521,7 @@ class OnlineLyricsFetcher:
                 if name and sid and not any(c[0] == name and c[1] == artists for c in candidates):
                     candidates.append((name, artists, "netease", str(sid)))
         except Exception:
-            pass
+            logger.debug("lyrics: 静默异常已捕获", exc_info=True)
         # 酷狗候选（去重）
         try:
             for s in self._kugou_search(keyword):
@@ -529,7 +531,7 @@ class OnlineLyricsFetcher:
                 if name and hash_id and not any(c[0] == name and c[1] == artists for c in candidates):
                     candidates.append((name, artists, "kugou", hash_id))
         except Exception:
-            pass
+            logger.debug("lyrics: 静默异常已捕获", exc_info=True)
         return candidates
 
     def _fetch_lyric_by_candidate(self, candidate: Tuple[str, str, str, str]) -> str:
