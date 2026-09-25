@@ -203,7 +203,7 @@ def download_song_interactive(config: 'Config', keyword: str, output_dir: str = 
                 print(f"  ✓ 歌词已保存: {lrc_path.name}")
                 return lrc_path
             else:
-                print(f"  ! 该歌曲无有效歌词（无时间轴或纯音乐）")
+                print("  ! 该歌曲无有效歌词（无时间轴或纯音乐）")
                 return None
         except Exception as e:
             print(f"  ! 歌词下载失败: {e}")
@@ -266,7 +266,7 @@ def download_song_interactive(config: 'Config', keyword: str, output_dir: str = 
         # 步骤4: 获取播放 URL 并试听
         cand = candidates[idx]
         song_name = f"{cand[0]} - {cand[1] or '未知'}"
-        print(f"\n获取播放链接中...")
+        print("\n获取播放链接中...")
         song_url = fetcher.fetch_song_url_by_candidate(cand)
         if not song_url:
             print(f"未能获取 {song_name} 的播放链接，尝试下一个")
@@ -303,7 +303,7 @@ def download_song_interactive(config: 'Config', keyword: str, output_dir: str = 
             if _download_url_to_file(song_url, song_path):
                 print(f"  ✓ 歌曲已保存: {song_path}")
             else:
-                print(f"  ✗ 歌曲下载失败")
+                print("  ✗ 歌曲下载失败")
 
             # 下载完成后，询问是否继续搜索
             print()

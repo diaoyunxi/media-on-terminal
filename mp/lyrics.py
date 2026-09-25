@@ -280,7 +280,7 @@ class LyricsDisplay:
         elif status == "no_result":
             return "no_result", f"未找到 '{keyword}' 的歌词"
         elif status == "no_timeline":
-            return "no_timeline", f"找到歌词但无时间轴，已丢弃"
+            return "no_timeline", "找到歌词但无时间轴，已丢弃"
         else:
             return "network_error", "网络搜索失败"
 

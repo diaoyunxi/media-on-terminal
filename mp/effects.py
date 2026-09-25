@@ -205,7 +205,7 @@ class Equalizer:
     def list_presets(self):
         """列出所有预设"""
         print(f"\n{'='*60}")
-        print(f"  均衡器预设")
+        print("  均衡器预设")
         print(f"{'='*60}")
         for name in self.PRESETS.keys():
             marker = "▶ " if name == self.current_preset else "  "
@@ -360,7 +360,7 @@ class ReverbEffect:
 
     @staticmethod
     def list_presets():
-        print(f"\n可用混响预设:")
+        print("\n可用混响预设:")
         print(f"{'='*40}")
         for name, (desc, _) in ReverbEffect.PRESETS.items():
             print(f"  {name:12s} - {desc}")

@@ -157,7 +157,7 @@ class MediaLibrary:
         """显示媒体库统计"""
         files = self.library['files']
         print(f"\n{'='*60}")
-        print(f"  媒体库统计")
+        print("  媒体库统计")
         print(f"{'='*60}")
         print(f"  文件总数: {len(files)}")
 
@@ -176,7 +176,7 @@ class MediaLibrary:
 
         print(f"  总大小: {MediaInfo.format_size(total_size)}")
         print(f"  总时长: {MediaInfo.format_duration(total_dur)}")
-        print(f"\n  格式分布:")
+        print("\n  格式分布:")
         for ext, cnt in sorted(by_ext.items(), key=lambda x: x[1], reverse=True):
             print(f"    {ext.upper():6s}: {cnt}")
 

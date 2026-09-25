@@ -447,7 +447,7 @@ def check_for_update(force: bool = False):
             return False
 
         print(f"\n{'='*50}")
-        print(f"  发现新版本！")
+        print("  发现新版本！")
         print(f"  当前版本: v{__version__}")
         print(f"  最新版本: {latest}")
         print(f"{'='*50}")
@@ -526,7 +526,7 @@ def check_for_update(force: bool = False):
                 codeload_url = _github_url(
                     f"https://codeload.github.com/{GITHUB_REPO}/zip/refs/heads/main"
                 )
-                print(f"  下载 main 分支仓库 zip ...")
+                print("  下载 main 分支仓库 zip ...")
                 req = urllib.request.Request(codeload_url, headers={"User-Agent": "mp-player"})
                 with urllib.request.urlopen(req, timeout=60) as resp:
                     content = resp.read()
@@ -548,7 +548,7 @@ def check_for_update(force: bool = False):
         # 策略3：git pull（最后回退，仅当安装根目录有 .git）
         if not updated and os.path.isdir(os.path.join(install_root, '.git')):
             try:
-                print(f"  尝试 git pull ...")
+                print("  尝试 git pull ...")
                 result = subprocess.run(
                     ['git', 'pull'],
                     cwd=install_root,

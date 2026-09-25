@@ -147,7 +147,7 @@ class MetadataEditor:
                     break
             print(f"  {i}. {display_name:8s}: {current_value or '(空)'}")
 
-        print(f"\n输入编号修改 (1-6), 0 取消, q 退出:")
+        print("\n输入编号修改 (1-6), 0 取消, q 退出:")
 
         try:
             choice = input("> ").strip()
@@ -198,7 +198,7 @@ class BatchRenamer:
             return 0
 
         if not any(ph in pattern for ph in BatchRenamer.SUPPORTED_PLACEHOLDERS):
-            print(f"✗ 模式不包含任何占位符")
+            print("✗ 模式不包含任何占位符")
             print(f"  可用占位符: {', '.join(BatchRenamer.SUPPORTED_PLACEHOLDERS)}")
             return 0
 
@@ -516,7 +516,7 @@ class SubtitleExtractor:
             if result.returncode == 0 and output_path.exists():
                 size = output_path.stat().st_size
                 if size == 0:
-                    print(f"✗ 字幕为空")
+                    print("✗ 字幕为空")
                     output_path.unlink()
                     return False
                 print(f"✓ 提取完成: {output_path.name}")

@@ -1154,7 +1154,7 @@ def main():
                 cand = candidates[idx]
                 lrc = fetcher._fetch_lyric_by_candidate(cand)
                 if not fetcher._has_timeline(lrc):
-                    print(f"该候选无有效歌词（无时间轴或纯音乐占位）")
+                    print("该候选无有效歌词（无时间轴或纯音乐占位）")
                     return False, "no_timeline", 0
                 source = cand[2]
                 src_label = src_name_map.get(source, source)
