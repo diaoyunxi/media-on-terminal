@@ -922,8 +922,10 @@ class AudioPlayer:
         self._clear_progress_display()
         print()
 
-        # 单曲循环：自然播放结束时（非用户主动退出）重新播放
-        if self.loop_mode == 'single':
+        # 单曲循环：仅在自然播放结束时（非用户主动退出/定时停止）重新播放。
+        # 用户按 q 退出或定时停止会 break 出控制循环，但此时 is_playing 仍为 True，
+        # 据此区分「自然结束」与「主动退出」，避免单曲循环下按 q 无法退出。
+        if self.loop_mode == 'single' and not self.is_playing and not self.is_paused:
             self.stop()
             print("\n🔁 单曲循环，重新播放...")
             self.run()
