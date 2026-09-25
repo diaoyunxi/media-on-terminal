@@ -410,7 +410,7 @@ def main():
         
         try:
             # 播放为长进程（用户按 Ctrl+C 或 q 停止），不设 timeout 避免被中途终止
-            subprocess.run(cmd)
+            subprocess.run(cmd, check=False)
         except KeyboardInterrupt:
             print("\n停止播放")
         sys.exit(0)

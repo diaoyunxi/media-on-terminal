@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 """播放管理器集合"""
 
+import logging
+logger = logging.getLogger(__name__)
 import sys
 import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
@@ -55,7 +57,7 @@ class BookmarkManager:
             with open(self.BOOKMARK_FILE, 'w', encoding='utf-8') as f:
                 json.dump(self.bookmarks, f, indent=2)
         except Exception:
-            pass
+            logger.debug("managers: 静默异常已捕获", exc_info=True)
     
     def get_position(self, file_path: Path) -> float:
         """获取文件的书签位置（秒）"""
@@ -107,7 +109,7 @@ class FavoritesManager:
             with open(FAVORITES_FILE, 'w', encoding='utf-8') as f:
                 json.dump(self.favorites, f, indent=2)
         except Exception:
-            pass
+            logger.debug("managers: 静默异常已捕获", exc_info=True)
     
     def add(self, file_path: Path):
         """添加歌曲到收藏"""
@@ -197,7 +199,7 @@ class HistoryManager:
             with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
                 json.dump(self.history, f, indent=2)
         except Exception:
-            pass
+            logger.debug("managers: 静默异常已捕获", exc_info=True)
     
     def add(self, file_path: Path, duration_played: float = 0):
         """添加播放记录"""
@@ -400,7 +402,7 @@ class RadioManager:
             with open(RADIO_FILE, 'w', encoding='utf-8') as f:
                 json.dump(self.stations, f, indent=2, ensure_ascii=False)
         except Exception:
-            pass
+            logger.debug("managers: 静默异常已捕获", exc_info=True)
     
     def add_station(self, name: str, url: str):
         """添加电台"""
@@ -553,7 +555,7 @@ class StatisticsManager:
                     saved = json.load(f)
                     self.stats.update(saved)
         except Exception:
-            pass
+            logger.debug("managers: 静默异常已捕获", exc_info=True)
 
     def save(self):
         """保存统计数据"""
@@ -562,7 +564,7 @@ class StatisticsManager:
             with open(self.STATS_FILE, 'w', encoding='utf-8') as f:
                 json.dump(self.stats, f, indent=2, ensure_ascii=False)
         except Exception:
-            pass
+            logger.debug("managers: 静默异常已捕获", exc_info=True)
 
     def record_play(self, file_path: Path, duration: float):
         """记录播放"""

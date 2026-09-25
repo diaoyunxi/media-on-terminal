@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 """可视化与频谱"""
 
+import logging
+logger = logging.getLogger(__name__)
 import sys
 import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
@@ -86,7 +88,7 @@ class AudioVisualizer:
             self.fft_data = self.smoothing.copy()
             
         except Exception:
-            pass
+            logger.debug("visual: 静默异常已捕获", exc_info=True)
     
     def render(self) -> str:
         """渲染可视化条形图"""
@@ -145,7 +147,7 @@ class SpectrogramGenerator:
         ])
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 频谱图已生成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -191,7 +193,7 @@ class WaveformGenerator:
         ])
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 波形图已生成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -217,7 +219,7 @@ class CoverExtractor:
             '-show_streams', str(file_path)
         ]
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode != 0:
                 return None
             data = json.loads(result.stdout)
@@ -232,7 +234,7 @@ class CoverExtractor:
                     if nb_frames == '1':
                         return stream.get('index')
         except Exception:
-            pass
+            logger.debug("visual: 静默异常已捕获", exc_info=True)
         return None
 
     @staticmethod
@@ -261,7 +263,7 @@ class CoverExtractor:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0 and output_path.exists() and output_path.stat().st_size > 0:
                 print(f"✓ 封面已提取: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -310,7 +312,7 @@ class AsciiArtExporter:
 
         print(f"导出 ASCII 艺术: {video_path.name} ({width}x{height} @ {fps}fps)")
         try:
-            proc = subprocess.run(cmd, capture_output=True, timeout=30)
+            proc = subprocess.run(cmd, capture_output=True, timeout=30, check=False)
             if proc.returncode != 0:
                 err = proc.stderr.decode(errors='ignore').strip()
                 print(f"✗ 失败: {err[:200]}")

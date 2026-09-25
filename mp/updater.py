@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 """GitHub 自动更新"""
 
+import logging
+logger = logging.getLogger(__name__)
 import sys
 import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
@@ -103,7 +105,7 @@ def _fetch_latest_version_github():
             if tag:
                 result = (tag, html_url, assets)
     except Exception:
-        pass
+        logger.debug("updater: 静默异常已捕获", exc_info=True)
 
     # --- 回退到 Tags API（无 assets 信息）---
     if result is None:
@@ -116,7 +118,7 @@ def _fetch_latest_version_github():
                     tag = data[0].get("name")
                     result = (tag, _github_url(f"https://github.com/{GITHUB_REPO}/releases/tag/{tag}"), [])
         except Exception:
-            pass
+            logger.debug("updater: 静默异常已捕获", exc_info=True)
 
     # --- 缓存写入 / 过期缓存兜底 ---
     if result is not None:
@@ -132,7 +134,7 @@ def _fetch_latest_version_github():
             with open(UPDATE_CACHE_FILE, 'w', encoding='utf-8') as f:
                 json.dump(payload, f, ensure_ascii=False)
         except Exception:
-            pass
+            logger.debug("updater: 静默异常已捕获", exc_info=True)
         return result
 
     # 请求失败：用过期缓存兜底（即便过期也比无返回好）
@@ -234,7 +236,7 @@ def _safe_replace_py(content, target_path):
         try:
             os.unlink(tmp_path)
         except OSError:
-            pass
+            logger.debug("updater: 静默异常已捕获", exc_info=True)
 
 
 
@@ -515,7 +517,7 @@ def check_for_update(force: bool = False):
                         try:
                             os.unlink(tmp_path)
                         except OSError:
-                            pass
+                            logger.debug("updater: 静默异常已捕获", exc_info=True)
                 except Exception as e:
                     print(f"  从 Release Assets 更新失败: {e}")
 
@@ -541,7 +543,7 @@ def check_for_update(force: bool = False):
                     try:
                         os.unlink(tmp_path)
                     except OSError:
-                        pass
+                        logger.debug("updater: 静默异常已捕获", exc_info=True)
             except Exception as e:
                 print(f"  从仓库 zip 下载失败: {e}")
 
@@ -555,7 +557,7 @@ def check_for_update(force: bool = False):
                     capture_output=True,
                     text=True,
                     timeout=30
-                )
+                , check=False)
                 if result.returncode == 0:
                     updated = True
                 else:

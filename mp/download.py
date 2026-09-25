@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 """歌曲下载"""
 
+import logging
+logger = logging.getLogger(__name__)
 import sys
 import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
@@ -141,7 +143,7 @@ def download_song_interactive(config: 'Config', keyword: str, output_dir: str = 
                             proc.stdin.write(b' ')
                             proc.stdin.flush()
                         except Exception:
-                            pass
+                            logger.debug("download: 静默异常已捕获", exc_info=True)
                     elif ch == '\x1b':
                         # 可能是 Escape 键或方向键开头
                         # 尝试读取剩余序列（50ms 内）
@@ -150,14 +152,14 @@ def download_song_interactive(config: 'Config', keyword: str, output_dir: str = 
                             while select.select([sys.stdin], [], [], 0.05)[0]:
                                 seq += sys.stdin.read(1)
                         except Exception:
-                            pass
+                            logger.debug("download: 静默异常已捕获", exc_info=True)
                         if seq:
                             # 方向键序列，转发给 ffplay
                             try:
                                 proc.stdin.write(('\x1b' + seq).encode())
                                 proc.stdin.flush()
                             except Exception:
-                                pass
+                                logger.debug("download: 静默异常已捕获", exc_info=True)
                         else:
                             # 纯 Escape 键 = 退出
                             choice = 'q'
@@ -173,7 +175,7 @@ def download_song_interactive(config: 'Config', keyword: str, output_dir: str = 
                             proc.stdin.write(ch.encode())
                             proc.stdin.flush()
                         except Exception:
-                            pass
+                            logger.debug("download: 静默异常已捕获", exc_info=True)
             if proc.poll() is not None and not choice:
                 # 播放完毕，等待用户选择
                 termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)

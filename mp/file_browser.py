@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 """文件浏览器"""
 
+import logging
+logger = logging.getLogger(__name__)
 import sys
 import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
@@ -57,7 +59,7 @@ class FileBrowser:
                 elif entry.is_file() and entry.suffix.lower() in self.MEDIA_EXTENSIONS:
                     files.append(entry)
         except PermissionError:
-            pass
+            logger.debug("file_browser: 静默异常已捕获", exc_info=True)
         self.entries = dirs + files
         self.cursor = min(self.cursor, max(0, len(self.entries) - 1))
 

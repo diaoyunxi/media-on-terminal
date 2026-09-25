@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 """媒体库管理"""
 
+import logging
+logger = logging.getLogger(__name__)
 import sys
 import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
@@ -51,7 +53,7 @@ class MediaLibrary:
                     saved = json.load(f)
                     self.library.update(saved)
         except Exception:
-            pass
+            logger.debug("media_library: 静默异常已捕获", exc_info=True)
 
     def save(self):
         try:
@@ -59,7 +61,7 @@ class MediaLibrary:
             with open(self.LIBRARY_FILE, 'w', encoding='utf-8') as f:
                 json.dump(self.library, f, indent=2, ensure_ascii=False)
         except Exception:
-            pass
+            logger.debug("media_library: 静默异常已捕获", exc_info=True)
 
     def scan(self, directory: Path, recursive: bool = True) -> int:
         """扫描目录，建立媒体库索引"""
