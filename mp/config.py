@@ -61,13 +61,16 @@ class Config:
             pass
     
     def save(self):
-        """保存配置"""
+        """保存配置（原子写入，防止写入中断导致配置损坏）"""
         try:
             CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-            with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+            # 先写入临时文件，再原子替换，防止进程中断导致配置损坏
+            tmp_file = CONFIG_FILE.with_suffix('.tmp')
+            with open(tmp_file, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f, indent=2)
-        except Exception:
-            pass
+            os.replace(tmp_file, CONFIG_FILE)
+        except Exception as e:
+            print(f"保存配置失败: {e}", file=sys.stderr)
     
     def get(self, key, default=None):
         return self.config.get(key, default)
