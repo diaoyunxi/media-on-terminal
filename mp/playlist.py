@@ -54,10 +54,7 @@ class Playlist:
             '.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv'
         }
         
-        if recursive:
-            pattern = '**/*'
-        else:
-            pattern = '*'
+        pattern = '**/*' if recursive else '*'
         
         for file in dir_path.glob(pattern):
             if file.is_file() and file.suffix.lower() in media_extensions:

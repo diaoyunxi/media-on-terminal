@@ -500,10 +500,7 @@ class SubtitleExtractor:
         print(f"  字幕流 #{stream_index}: 编码={codec}, 语言={lang}")
 
         # 选择输出编码
-        if output_format == 'ass':
-            codec_args = ['-c:s', 'ass']
-        else:
-            codec_args = ['-c:s', 'srt']
+        codec_args = ['-c:s', 'ass'] if output_format == 'ass' else ['-c:s', 'srt']
 
         cmd = [
             'ffmpeg', '-y', '-loglevel', 'warning',
