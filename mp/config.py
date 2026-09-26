@@ -38,7 +38,7 @@ class Config:
     替代当前基于字典的手动管理方式。
     """
     
-    DEFAULT_CONFIG = {
+    DEFAULT_CONFIG: ClassVar[dict] = {
         'volume': 100,  # 音量 0-100
         'playback_speed': 1.0,  # 播放速度
         'loop_mode': 'none',  # none, single, all

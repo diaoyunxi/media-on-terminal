@@ -31,7 +31,7 @@ from typing import List, Optional, Dict, Any, Tuple
 class NoiseGenerator:
     """噪声生成器 - 生成白噪声/粉红噪声/棕噪声用于助眠/专注"""
 
-    NOISE_TYPES = {
+    NOISE_TYPES: ClassVar[dict] = {
         'white': '白噪声',
         'pink': '粉红噪声',
         'brown': '棕噪声',

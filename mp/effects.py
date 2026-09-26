@@ -33,7 +33,7 @@ from mp.media_info import MediaInfo
 class AudioConverter:
     """音频转换器 - 在不同格式间转换音频文件"""
 
-    SUPPORTED_FORMATS = {
+    SUPPORTED_FORMATS: ClassVar[dict] = {
         '.mp3': ['-codec:a', 'libmp3lame', '-b:a', '192k'],
         '.wav': ['-codec:a', 'pcm_s16le'],
         '.ogg': ['-codec:a', 'libvorbis', '-b:a', '192k'],
@@ -117,7 +117,7 @@ class Equalizer:
     """均衡器 - 多频段音频均衡控制"""
 
     # 预设均衡器配置
-    PRESETS = {
+    PRESETS: ClassVar[dict] = {
         'flat': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         'rock': [5, 4, 3, 1, -1, -1, 0, 2, 3, 4],
         'pop': [-1, 0, 2, 4, 4, 3, 1, 0, -1, -2],
@@ -130,7 +130,7 @@ class Equalizer:
     }
 
     # 频段频率
-    FREQUENCIES = ['60Hz', '170Hz', '310Hz', '600Hz', '1kHz', '3kHz', '6kHz', '12kHz', '14kHz', '16kHz']
+    FREQUENCIES: ClassVar[list] = ['60Hz', '170Hz', '310Hz', '600Hz', '1kHz', '3kHz', '6kHz', '12kHz', '14kHz', '16kHz']
 
     def __init__(self):
         self.bands = [0] * 10  # 10频段均衡器
@@ -348,7 +348,7 @@ class FadeEffect:
 class ReverbEffect:
     """混响效果 - 为音频添加混响/回声"""
 
-    PRESETS = {
+    PRESETS: ClassVar[dict] = {
         'room':       ('房间',       'aecho=0.8:0.9:1000:0.3'),
         'hall':       ('音乐厅',     'aecho=0.8:0.9:2000:0.4'),
         'cathedral':  ('大教堂',     'aecho=0.8:0.9:3000:0.5'),
@@ -412,7 +412,7 @@ class ReverbEffect:
 class AudioNormalizer:
     """音频归一化 - 统一音频文件的音量水平"""
 
-    METHODS = {
+    METHODS: ClassVar[dict] = {
         'loudnorm': 'EBU R128 响度归一化（推荐，-16 LUFS）',
         'dynaudnorm': '动态音频归一化（平滑）',
         'loudnorm_db': '峰值归一化到 0dB',

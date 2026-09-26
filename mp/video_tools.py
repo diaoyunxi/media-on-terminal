@@ -315,7 +315,7 @@ class VideoScaler:
 class VideoRotator:
     """视频旋转 - 90/180/270 度旋转"""
 
-    VALID_DEGREES = {90, 180, 270}
+    VALID_DEGREES: ClassVar[set] = {90, 180, 270}
 
     @staticmethod
     def rotate(video_path: Path, degrees: int,
