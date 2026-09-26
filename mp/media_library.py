@@ -34,7 +34,7 @@ class MediaLibrary:
     """媒体库 - 扫描本地媒体文件并建立可搜索索引"""
 
     LIBRARY_FILE = CONFIG_DIR / 'library.json'
-    MEDIA_EXTENSIONS = {
+    MEDIA_EXTENSIONS: ClassVar[set] = {
         '.mp3', '.wav', '.ogg', '.m4a', '.flac', '.aac', '.opus',
         '.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v',
     }

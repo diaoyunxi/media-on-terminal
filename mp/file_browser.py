@@ -31,7 +31,7 @@ from typing import List, Optional, Dict, Any, Tuple
 class FileBrowser:
     """交互式文件浏览器 - 在终端中浏览和选择媒体文件"""
 
-    MEDIA_EXTENSIONS = {
+    MEDIA_EXTENSIONS: ClassVar[set] = {
         '.mp3', '.wav', '.ogg', '.m4a', '.flac', '.aac', '.opus', '.m4b',
         '.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv'
     }

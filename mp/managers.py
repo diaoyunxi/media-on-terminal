@@ -369,7 +369,7 @@ class RadioManager:
     """网络电台管理 - 支持在线流媒体播放"""
     
     # 预设电台列表
-    DEFAULT_STATIONS = {
+    DEFAULT_STATIONS: ClassVar[dict] = {
         "经典音乐": "http://stream.rthk.hk/radio/pth",
         "新闻频道": "http://stream.rthk.hk/radio/news",
         "流行音乐": "http://stream.rthk.hk/radio/pop",

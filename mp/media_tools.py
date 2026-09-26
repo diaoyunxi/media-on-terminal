@@ -423,7 +423,7 @@ class MediaHealthChecker:
 class DuplicateFinder:
     """重复文件查找 - 基于内容哈希查找重复媒体文件"""
 
-    MEDIA_EXTENSIONS = {
+    MEDIA_EXTENSIONS: ClassVar[set] = {
         '.mp3', '.wav', '.ogg', '.m4a', '.flac', '.aac', '.opus',
         '.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v',
     }
@@ -503,7 +503,7 @@ class DuplicateFinder:
 class MetadataExporter:
     """元数据批量导出 CSV - 将多个媒体文件的元数据导出为 CSV 表格"""
 
-    FIELDS = [
+    FIELDS: ClassVar[list] = [
         ('文件名', 'name'),
         ('格式', 'fmt'),
         ('大小', 'size_h'),

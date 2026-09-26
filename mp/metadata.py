@@ -32,7 +32,7 @@ from mp.media_info import MediaInfo
 class MetadataEditor:
     """元数据编辑器 - 编辑媒体文件的标签信息"""
 
-    SUPPORTED_TAGS = {
+    SUPPORTED_TAGS: ClassVar[dict] = {
         '.mp3': {'title': 'title', 'artist': 'artist', 'album': 'album', 'track': 'track', 'genre': 'genre', 'date': 'date'},
         '.m4a': {'title': 'title', 'artist': 'artist', 'album': 'album', 'track': 'track', 'genre': 'genre', 'date': 'date'},
         '.flac': {'title': 'TITLE', 'artist': 'ARTIST', 'album': 'ALBUM', 'track': 'TRACKNUMBER', 'genre': 'GENRE', 'date': 'DATE'},
@@ -175,7 +175,7 @@ class MetadataEditor:
 class BatchRenamer:
     """批量重命名 - 基于媒体元数据重命名文件"""
 
-    SUPPORTED_PLACEHOLDERS = ['{title}', '{artist}', '{album}', '{year}', '{track}']
+    SUPPORTED_PLACEHOLDERS: ClassVar[list] = ['{title}', '{artist}', '{album}', '{year}', '{track}']
 
     @staticmethod
     def _sanitize(name: str) -> str:
