@@ -421,7 +421,10 @@ class OnlineLyricsFetcher:
         url = (f"https://c.y.qq.com/soso/fcgi-bin/client_search_cp"
                f"?w={urllib.parse.quote(keyword)}&format=json&n={limit}&p=1")
         text = self._http_get(url, extra_headers={"Referer": "https://y.qq.com/"})
-        data = json.loads(text)
+        try:
+            data = json.loads(text)
+        except (json.JSONDecodeError, ValueError):
+            return []
         return data.get("data", {}).get("song", {}).get("list", []) or []
 
     def _qq_lyric(self, songmid: str) -> str:
@@ -434,7 +437,10 @@ class OnlineLyricsFetcher:
         m = re.match(r"^\s*[\w$]+\s*\((.*)\)\s*$", text, re.DOTALL)
         if m:
             text = m.group(1)
-        data = json.loads(text)
+        try:
+            data = json.loads(text)
+        except (json.JSONDecodeError, ValueError):
+            return ""
         return data.get("lyric", "") or ""
 
     def _netease_search(self, keyword: str, limit: int = 5) -> List[Dict[str, Any]]:
@@ -442,14 +448,20 @@ class OnlineLyricsFetcher:
         url = (f"https://music.163.com/api/search/get"
                f"?s={urllib.parse.quote(keyword)}&type=1&limit={limit}")
         text = self._http_get(url)
-        data = json.loads(text)
+        try:
+            data = json.loads(text)
+        except (json.JSONDecodeError, ValueError):
+            return []
         return data.get("result", {}).get("songs", []) or []
 
     def _netease_lyric(self, song_id: int) -> str:
         """网易云获取歌词"""
         url = f"https://music.163.com/api/song/lyric?id={song_id}&lv=1&kv=1&tv=-1"
         text = self._http_get(url)
-        data = json.loads(text)
+        try:
+            data = json.loads(text)
+        except (json.JSONDecodeError, ValueError):
+            return ""
         return data.get("lrc", {}).get("lyric", "") or ""
 
     def _kugou_search(self, keyword: str, limit: int = 5) -> List[Dict[str, Any]]:
@@ -460,7 +472,10 @@ class OnlineLyricsFetcher:
         url = (f"http://mobilecdn.kugou.com/api/v3/search/song"
                f"?keyword={urllib.parse.quote(keyword)}&pagesize={limit}&page=1")
         text = self._http_get(url)
-        data = json.loads(text)
+        try:
+            data = json.loads(text)
+        except (json.JSONDecodeError, ValueError):
+            return []
         return data.get("data", {}).get("info", []) or []
 
     def _kugou_lyric(self, hash_id: str) -> str:
@@ -472,7 +487,10 @@ class OnlineLyricsFetcher:
         url = (f"http://krcs.kugou.com/search"
                f"?ver=1&man=yes&client=mobi&hash={hash_id}&duration=0&album_audio_id=0")
         text = self._http_get(url)
-        data = json.loads(text)
+        try:
+            data = json.loads(text)
+        except (json.JSONDecodeError, ValueError):
+            return ""
         candidates = data.get("candidates", []) or []
         if not candidates:
             return ""
