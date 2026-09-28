@@ -88,12 +88,16 @@ class MetadataEditor:
                 return True
             else:
                 if temp_path.exists():
-                    temp_path.unlink()
+                    if temp_path.exists():
+
+                        temp_path.unlink()
                 print(f"设置标签失败: {result.stderr}")
                 return False
         except Exception as e:
             if temp_path.exists():
-                temp_path.unlink()
+                if temp_path.exists():
+
+                    temp_path.unlink()
             print(f"错误: {e}")
             return False
 
@@ -517,7 +521,9 @@ class SubtitleExtractor:
                 size = output_path.stat().st_size
                 if size == 0:
                     print(f"✗ 字幕为空")
-                    output_path.unlink()
+                    if output_path.exists():
+
+                        output_path.unlink()
                     return False
                 print(f"✓ 提取完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(size)}")
