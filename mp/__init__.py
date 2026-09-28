@@ -12,17 +12,6 @@ __version__ = "2.12.0"
 import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
 
-from mp.constants import (
-    CONFIG_DIR, CONFIG_FILE, PLAYLIST_DIR,
-    FAVORITES_FILE, HISTORY_FILE, RADIO_FILE,
-    UPDATE_CACHE_FILE, GITHUB_REPO,
-)
-
-from mp.utils import (
-    _display_width, _truncate_to_width,
-    get_pip_install_args, install_system_dependencies,
-    check_and_install_dependencies, check_ffmpeg,
-)
 from mp.config import Config, ConfigBackup
 from mp.media_info import MediaInfo
 from mp.managers import (
