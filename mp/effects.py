@@ -466,7 +466,9 @@ class AudioNormalizer:
             if result.returncode != 0 or not tmp.exists():
                 print(f"✗ 归一化失败: {result.stderr.strip()}")
                 if tmp.exists():
-                    tmp.unlink()
+                    if tmp.exists():
+
+                        tmp.unlink()
                 return False
 
             if output_path == file_path:
@@ -478,7 +480,9 @@ class AudioNormalizer:
             return True
         except Exception as e:
             if tmp.exists() and output_path != file_path:
-                tmp.unlink()
+                if tmp.exists():
+
+                    tmp.unlink()
             print(f"✗ 错误: {e}")
             return False
 
