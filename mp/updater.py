@@ -227,14 +227,19 @@ def _safe_replace_py(content, target_path):
             print(f"  下载的 {os.path.basename(target_path)} 语法校验失败，已放弃更新避免损坏: {e}")
             return False
         # 校验通过，原子替换（写回原路径）
-        with open(target_path, 'wb') as dst:
-            dst.write(content)
+        try:
+            with open(target_path, 'wb') as dst:
+                dst.write(content)
+        except OSError as write_err:
+            print(f"  写入 {os.path.basename(target_path)} 失败（磁盘满或权限不足）: {write_err}")
+            return False
         return True
     finally:
         try:
             os.unlink(tmp_path)
-        except OSError:
-            pass
+        except OSError as cleanup_err:
+            # 临时文件清理为尽力操作，记录但不阻断主流程
+            print(f"  清理临时文件失败（可忽略）: {cleanup_err}")
 
 
 
