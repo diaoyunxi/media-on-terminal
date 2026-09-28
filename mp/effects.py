@@ -177,7 +177,7 @@ class Equalizer:
         print(f"{'='*60}")
 
         # 显示频段
-        for i, (freq, gain) in enumerate(zip(self.FREQUENCIES, self.bands)):
+        for i, (freq, gain) in enumerate(zip(self.FREQUENCIES, self.bands, strict=True)):
             bar_length = 20
             center = bar_length // 2
             bar = [' '] * bar_length
