@@ -199,14 +199,18 @@ class LyricsDisplay:
             ]
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0:
-                data = json.loads(result.stdout)
-                tags = data.get('format', {}).get('tags', {}) or {}
-                # 兼容大小写键
-                title = tags.get('title') or tags.get('TITLE')
-                artist = tags.get('artist') or tags.get('ARTIST')
-                if title:
-                    title = str(title).strip()
-                    if artist:
+                try:
+                    data = json.loads(result.stdout)
+                except json.JSONDecodeError:
+                    # ffprobe 返回非 JSON 内容时跳过解析
+                    return None
+                    tags = data.get('format', {}).get('tags', {}) or {}
+                    # 兼容大小写键
+                    title = tags.get('title') or tags.get('TITLE')
+                    artist = tags.get('artist') or tags.get('ARTIST')
+                    if title:
+                        title = str(title).strip()
+                        if artist:
                         return f"{artist} {title}"
                     return title
         except Exception:
