@@ -39,7 +39,7 @@ class BookmarkManager:
         self.bookmarks: Dict[str, float] = {}
         self.load()
     
-    def load(self):
+    def load(self) -> None:
         """加载书签"""
         try:
             if self.BOOKMARK_FILE.exists():
@@ -48,7 +48,7 @@ class BookmarkManager:
         except Exception:
             self.bookmarks = {}
     
-    def save(self):
+    def save(self) -> None:
         """保存书签"""
         try:
             CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -62,14 +62,14 @@ class BookmarkManager:
         key = str(file_path.resolve())
         return self.bookmarks.get(key, 0.0)
     
-    def set_position(self, file_path: Path, position: float):
+    def set_position(self, file_path: Path, position: float) -> None:
         """设置文件的书签位置（秒）"""
         key = str(file_path.resolve())
         if position > 5:  # 只保存超过5秒的位置
             self.bookmarks[key] = position
             self.save()
     
-    def clear_position(self, file_path: Path):
+    def clear_position(self, file_path: Path) -> None:
         """清除文件的书签"""
         key = str(file_path.resolve())
         if key in self.bookmarks:
@@ -91,7 +91,7 @@ class FavoritesManager:
         self.favorites: List[str] = []
         self.load()
     
-    def load(self):
+    def load(self) -> None:
         """加载收藏列表"""
         try:
             if FAVORITES_FILE.exists():
@@ -100,7 +100,7 @@ class FavoritesManager:
         except Exception:
             self.favorites = []
     
-    def save(self):
+    def save(self) -> None:
         """保存收藏列表"""
         try:
             CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -109,7 +109,7 @@ class FavoritesManager:
         except Exception:
             pass
     
-    def add(self, file_path: Path):
+    def add(self, file_path: Path) -> None:
         """添加歌曲到收藏"""
         key = str(file_path.resolve())
         if key not in self.favorites:
@@ -118,7 +118,7 @@ class FavoritesManager:
             return True
         return False
     
-    def remove(self, file_path: Path):
+    def remove(self, file_path: Path) -> None:
         """从收藏中移除歌曲"""
         key = str(file_path.resolve())
         if key in self.favorites:
@@ -150,7 +150,7 @@ class FavoritesManager:
                 result.append(path)
         return result
     
-    def display(self):
+    def display(self) -> None:
         """显示收藏列表"""
         if not self.favorites:
             print("\n收藏列表为空")
@@ -181,7 +181,7 @@ class HistoryManager:
         self.history: List[Dict[str, Any]] = []
         self.load()
     
-    def load(self):
+    def load(self) -> None:
         """加载历史记录"""
         try:
             if HISTORY_FILE.exists():
@@ -190,7 +190,7 @@ class HistoryManager:
         except Exception:
             self.history = []
     
-    def save(self):
+    def save(self) -> None:
         """保存历史记录"""
         try:
             CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -380,7 +380,7 @@ class RadioManager:
         self.stations: Dict[str, str] = {}
         self.load()
     
-    def load(self):
+    def load(self) -> None:
         """加载电台列表"""
         try:
             if RADIO_FILE.exists():
@@ -393,7 +393,7 @@ class RadioManager:
         except Exception:
             self.stations = self.DEFAULT_STATIONS.copy()
     
-    def save(self):
+    def save(self) -> None:
         """保存电台列表"""
         try:
             CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -451,7 +451,7 @@ class QueueManager:
         self.history: List[int] = []  # 已播放的索引
         self.current_position = -1
 
-    def add(self, file_path: Path):
+    def add(self, file_path: Path) -> None:
         """添加文件到队列"""
         if file_path.exists() and file_path not in self.queue:
             self.queue.append(file_path)
@@ -510,7 +510,7 @@ class QueueManager:
             return self.queue[self.current_position]
         return None
 
-    def display(self):
+    def display(self) -> None:
         """显示队列"""
         if not self.queue:
             print("\n队列为空")
@@ -545,7 +545,7 @@ class StatisticsManager:
         }
         self.load()
 
-    def load(self):
+    def load(self) -> None:
         """加载统计数据"""
         try:
             if self.STATS_FILE.exists():
@@ -555,7 +555,7 @@ class StatisticsManager:
         except Exception:
             pass
 
-    def save(self):
+    def save(self) -> None:
         """保存统计数据"""
         try:
             CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -597,7 +597,7 @@ class StatisticsManager:
 
         self.save()
 
-    def display(self):
+    def display(self) -> None:
         """显示统计信息"""
         print(f"\n{'='*60}")
         print(f"  播放统计")
