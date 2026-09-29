@@ -457,7 +457,7 @@ class OnlineLyricsFetcher:
 
         酷狗搜索接口返回歌曲 hash，用于后续获取歌词。
         """
-        url = (f"http://mobilecdn.kugou.com/api/v3/search/song"
+        url = (f"https://mobilecdn.kugou.com/api/v3/search/song"
                f"?keyword={urllib.parse.quote(keyword)}&pagesize={limit}&page=1")
         text = self._http_get(url)
         data = json.loads(text)
@@ -469,7 +469,7 @@ class OnlineLyricsFetcher:
         步骤：先通过 hash 查歌词信息，再下载歌词内容。
         """
         # 步骤1：查歌词信息
-        url = (f"http://krcs.kugou.com/search"
+        url = (f"https://krcs.kugou.com/search"
                f"?ver=1&man=yes&client=mobi&hash={hash_id}&duration=0&album_audio_id=0")
         text = self._http_get(url)
         data = json.loads(text)
@@ -482,7 +482,7 @@ class OnlineLyricsFetcher:
         if not lyric_id or not accesskey:
             return ""
         # 步骤2：下载歌词
-        url = (f"http://lyrics.kugou.com/download"
+        url = (f"https://lyrics.kugou.com/download"
                f"?ver=1&client=pc&id={lyric_id}&accesskey={accesskey}"
                f"&fmt=lrc&charset=utf8")
         text = self._http_get(url)
@@ -728,7 +728,7 @@ class OnlineLyricsFetcher:
                     # 拼接完整 URL（某些 CDN 需加协议头）
                     if purl.startswith("http"):
                         return purl
-                    return f"http://dl.stream.qqmusic.qq.com/{purl}"
+                    return f"https://dl.stream.qqmusic.qq.com/{purl}"
             return None
         except Exception:
             return None
@@ -757,7 +757,7 @@ class OnlineLyricsFetcher:
         返回: 播放 URL 字符串，失败返回 None
         """
         try:
-            url = f"http://m.kugou.com/app/i/getSongInfo.php?cmd=playInfo&hash={hash_id}"
+            url = f"https://m.kugou.com/app/i/getSongInfo.php?cmd=playInfo&hash={hash_id}"
             text = self._http_get(url)
             data = json.loads(text)
             dl_url = data.get("url") or data.get("playUrl") or ""
