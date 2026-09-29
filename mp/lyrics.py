@@ -210,7 +210,7 @@ class LyricsDisplay:
                         return f"{artist} {title}"
                     return title
         except Exception:
-            pass
+            import logging; logging.getLogger(__name__).debug("lyrics.py:build_search_keyword: %s", e)
         # 2. 回退到清洗后的文件名
         return OnlineLyricsFetcher._normalize_filename(file_path.stem)
 
@@ -509,7 +509,7 @@ class OnlineLyricsFetcher:
                 if name and mid:
                     candidates.append((name, artists, "qq", mid))
         except Exception:
-            pass
+            import logging; logging.getLogger(__name__).debug("lyrics.py:_collect_candidates: %s", e)
         # 网易云候选（去重，避免与QQ同名重复展示）
         try:
             for s in self._netease_search(keyword):
@@ -519,7 +519,7 @@ class OnlineLyricsFetcher:
                 if name and sid and not any(c[0] == name and c[1] == artists for c in candidates):
                     candidates.append((name, artists, "netease", str(sid)))
         except Exception:
-            pass
+            import logging; logging.getLogger(__name__).debug("lyrics.py:_collect_candidates: %s", e)
         # 酷狗候选（去重）
         try:
             for s in self._kugou_search(keyword):
@@ -529,7 +529,7 @@ class OnlineLyricsFetcher:
                 if name and hash_id and not any(c[0] == name and c[1] == artists for c in candidates):
                     candidates.append((name, artists, "kugou", hash_id))
         except Exception:
-            pass
+            import logging; logging.getLogger(__name__).debug("lyrics.py:_collect_candidates: %s", e)
         return candidates
 
     def _fetch_lyric_by_candidate(self, candidate: Tuple[str, str, str, str]) -> str:

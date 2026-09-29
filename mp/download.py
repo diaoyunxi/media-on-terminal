@@ -141,7 +141,7 @@ def download_song_interactive(config: 'Config', keyword: str, output_dir: str = 
                             proc.stdin.write(b' ')
                             proc.stdin.flush()
                         except Exception:
-                            pass
+                            import logging; logging.getLogger(__name__).debug("download.py:_preview_play: %s", e)
                     elif ch == '\x1b':
                         # 可能是 Escape 键或方向键开头
                         # 尝试读取剩余序列（50ms 内）
@@ -150,14 +150,14 @@ def download_song_interactive(config: 'Config', keyword: str, output_dir: str = 
                             while select.select([sys.stdin], [], [], 0.05)[0]:
                                 seq += sys.stdin.read(1)
                         except Exception:
-                            pass
+                            import logging; logging.getLogger(__name__).debug("download.py:_preview_play: %s", e)
                         if seq:
                             # 方向键序列，转发给 ffplay
                             try:
                                 proc.stdin.write(('\x1b' + seq).encode())
                                 proc.stdin.flush()
                             except Exception:
-                                pass
+                                import logging; logging.getLogger(__name__).debug("download.py:_preview_play: %s", e)
                         else:
                             # 纯 Escape 键 = 退出
                             choice = 'q'
@@ -173,7 +173,7 @@ def download_song_interactive(config: 'Config', keyword: str, output_dir: str = 
                             proc.stdin.write(ch.encode())
                             proc.stdin.flush()
                         except Exception:
-                            pass
+                            import logging; logging.getLogger(__name__).debug("download.py:_preview_play: %s", e)
             if proc.poll() is not None and not choice:
                 # 播放完毕，等待用户选择
                 termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)

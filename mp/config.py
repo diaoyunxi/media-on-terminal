@@ -58,7 +58,7 @@ class Config:
                     saved = json.load(f)
                     self.config.update(saved)
         except Exception:
-            pass
+            import logging; logging.getLogger(__name__).debug("config.py:load: %s", e)
     
     def save(self):
         """保存配置"""
@@ -67,7 +67,7 @@ class Config:
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f, indent=2)
         except Exception:
-            pass
+            import logging; logging.getLogger(__name__).debug("config.py:save: %s", e)
     
     def get(self, key, default=None):
         return self.config.get(key, default)
