@@ -140,7 +140,7 @@ def download_song_interactive(config: 'Config', keyword: str, output_dir: str = 
                         try:
                             proc.stdin.write(b' ')
                             proc.stdin.flush()
-                        except Exception:
+                        except Exception as e:
                             import logging; logging.getLogger(__name__).debug("download.py:_preview_play: %s", e)
                     elif ch == '\x1b':
                         # 可能是 Escape 键或方向键开头
@@ -149,14 +149,14 @@ def download_song_interactive(config: 'Config', keyword: str, output_dir: str = 
                         try:
                             while select.select([sys.stdin], [], [], 0.05)[0]:
                                 seq += sys.stdin.read(1)
-                        except Exception:
+                        except Exception as e:
                             import logging; logging.getLogger(__name__).debug("download.py:_preview_play: %s", e)
                         if seq:
                             # 方向键序列，转发给 ffplay
                             try:
                                 proc.stdin.write(('\x1b' + seq).encode())
                                 proc.stdin.flush()
-                            except Exception:
+                            except Exception as e:
                                 import logging; logging.getLogger(__name__).debug("download.py:_preview_play: %s", e)
                         else:
                             # 纯 Escape 键 = 退出
@@ -172,7 +172,7 @@ def download_song_interactive(config: 'Config', keyword: str, output_dir: str = 
                         try:
                             proc.stdin.write(ch.encode())
                             proc.stdin.flush()
-                        except Exception:
+                        except Exception as e:
                             import logging; logging.getLogger(__name__).debug("download.py:_preview_play: %s", e)
             if proc.poll() is not None and not choice:
                 # 播放完毕，等待用户选择
