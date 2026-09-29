@@ -101,7 +101,7 @@ class MediaInfo:
                                 info['fps'] = float(num) / float(den)
         
         except Exception:
-            pass
+            import logging; logging.getLogger(__name__).debug("media_info.py:get_info: %s", e)
         
         return info
     
