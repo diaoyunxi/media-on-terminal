@@ -38,9 +38,30 @@ def _github_url(url: str) -> str:
       https://gh.llkk.cc/https://api.github.com/repos/.../releases/latest
     """
     if not _GITHUB_MIRROR or url.startswith(_GITHUB_MIRROR):
+        _validate_url_scheme(url)
         return url
-    return f"{_GITHUB_MIRROR}/{url}"
+    result = f"{_GITHUB_MIRROR}/{url}"
+    _validate_url_scheme(result)
+    return result
 
+
+# 允许的 URL scheme 白名单，防止 file:// 等非 HTTP 协议 SSRF (CWE-918, B310)
+_ALLOWED_SCHEMES = ("http://", "https://")
+
+
+def _validate_url_scheme(url: str) -> str:
+    """校验 URL 的 scheme 是否在白名单内，拒绝 file:// 等危险协议。
+
+    Args:
+        url: 待校验的 URL 字符串
+    Returns:
+        原始 URL（校验通过后）
+    Raises:
+        ValueError: URL scheme 不在白名单内
+    """
+    if not url or not url.lower().startswith(_ALLOWED_SCHEMES):
+        raise ValueError(f"拒绝非 HTTP(S) 协议 URL: {url!r}")
+    return url
 
 
 def _fetch_latest_version_github():

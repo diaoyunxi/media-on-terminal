@@ -60,6 +60,9 @@ def download_song_interactive(config: 'Config', keyword: str, output_dir: str = 
     def _download_url_to_file(url: str, save_path: Path, timeout: int = 120) -> bool:
         """下载 URL 到文件，带进度显示"""
         try:
+            # 校验 URL scheme，防止 file:// 等非 HTTP 协议 (CWE-918, B310)
+            if not url or not url.lower().startswith(("http://", "https://")):
+                raise ValueError(f"拒绝非 HTTP(S) 协议 URL: {url!r}")
             req = urllib.request.Request(url, headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             })

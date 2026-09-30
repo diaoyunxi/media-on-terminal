@@ -279,6 +279,7 @@ class AudioPlayer:
     
     def capture_spectrum(self):
         """捕获音频频谱数据"""
+        process = None
         try:
             # 使用 ffmpeg 提取原始音频数据用于可视化
             cmd = [
@@ -303,10 +304,18 @@ class AudioPlayer:
                     break
                 self.visualizer.update(data)
                 time.sleep(0.03)
-            
-            process.terminate()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("频谱捕获异常: %s", e)
+        finally:
+            if process is not None:
+                try:
+                    process.terminate()
+                    process.wait(timeout=3)
+                except Exception:
+                    try:
+                        process.kill()
+                    except Exception:
+                        pass
     
     def update_progress(self):
         """更新播放进度"""
