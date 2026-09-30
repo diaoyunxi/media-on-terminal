@@ -66,15 +66,10 @@ class AudioPlayer:
             print("请运行: pip install pygame")
             sys.exit(1)
 
-        # 抑制pygame的欢迎信息（用 try-finally 确保异常时也能恢复 stdout 并关闭 devnull 文件句柄）
-        original_stdout = sys.stdout
-        devnull_fp = open(os.devnull, 'w')
-        sys.stdout = devnull_fp
-        try:
+        # 抑制 pygame 的欢迎信息（使用 contextlib.redirect_stdout 确保资源正确释放）
+        import contextlib
+        with open(os.devnull, 'w') as devnull_fp, contextlib.redirect_stdout(devnull_fp):
             pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
-        finally:
-            sys.stdout = original_stdout
-            devnull_fp.close()
         
         self.is_playing = False
         self.is_paused = False
