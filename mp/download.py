@@ -30,6 +30,14 @@ from typing import List, Optional, Dict, Any, Tuple
 from mp.lyrics import OnlineLyricsFetcher
 from mp.config import Config
 
+def _validate_url_scheme(url: str, allowed: tuple = ("http://", "https://")) -> str:
+    """校验 URL 协议白名单，防止 SSRF (CWE-918)"""
+    if not url.startswith(allowed):
+        raise ValueError(f"不允许的 URL 协议: {url[:20]}")
+    return url
+
+
+
 def download_song_interactive(config: 'Config', keyword: str, output_dir: str = None):
     """交互式歌曲下载：搜索 → 试听 → 选择下载（含歌词）
 
