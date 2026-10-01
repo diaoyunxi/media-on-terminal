@@ -2,30 +2,13 @@
 # -*- coding: utf-8 -*-
 """工具函数与依赖检查"""
 
-import sys
 import os
+import sys
+
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-import re
-import signal
 import platform
 import subprocess
-import shutil
-import argparse
-import time
-import threading
-import random
-import json
-import hashlib
-import struct
-import zipfile
-import tempfile
-import base64
-import urllib.request
-import urllib.error
-import urllib.parse
 import unicodedata
-from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
 
 
 def _display_width(s: str) -> int:
@@ -103,11 +86,6 @@ def _truncate_to_width(s: str, max_width: int) -> str:
     return ''.join(result)
 
 # 路径常量从 constants.py 导入（向后兼容）
-from mp.constants import (
-    CONFIG_DIR, CONFIG_FILE, PLAYLIST_DIR,
-    FAVORITES_FILE, HISTORY_FILE, RADIO_FILE,
-    UPDATE_CACHE_FILE,
-)
 
 
 

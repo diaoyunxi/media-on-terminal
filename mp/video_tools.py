@@ -2,30 +2,14 @@
 # -*- coding: utf-8 -*-
 """视频工具集"""
 
-import sys
 import os
+
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-import re
-import signal
-import platform
-import subprocess
 import shutil
-import argparse
-import time
-import threading
-import random
-import json
-import hashlib
-import struct
-import zipfile
+import subprocess
 import tempfile
-import base64
-import urllib.request
-import urllib.error
-import urllib.parse
-import unicodedata
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
+
 from mp.media_info import MediaInfo
 
 
@@ -33,8 +17,8 @@ class GifConverter:
     """GIF转换器 - 将视频片段转换为GIF动画"""
 
     @staticmethod
-    def convert(video_path: Path, output_path: Optional[Path] = None,
-                start: float = 0.0, duration: Optional[float] = None,
+    def convert(video_path: Path, output_path: Path | None = None,
+                start: float = 0.0, duration: float | None = None,
                 width: int = 480, fps: int = 15) -> bool:
         """将视频片段转为GIF"""
         if not video_path.exists():
@@ -115,7 +99,7 @@ class ScreenshotCapture:
 
     @staticmethod
     def capture(video_path: Path, timestamp: float = 0.0,
-                output_path: Optional[Path] = None) -> bool:
+                output_path: Path | None = None) -> bool:
         """捕获指定时间点的视频帧"""
         if not video_path.exists():
             print(f"错误: 文件不存在 {video_path}")
@@ -164,7 +148,7 @@ class ScreenshotCapture:
 
     @staticmethod
     def capture_multi(video_path: Path, count: int = 5,
-                      output_dir: Optional[Path] = None) -> int:
+                      output_dir: Path | None = None) -> int:
         """从视频中均匀捕获多张截图"""
         if not video_path.exists():
             print(f"错误: 文件不存在 {video_path}")
@@ -208,7 +192,7 @@ class VideoConcat:
     """视频拼接 - 将多个视频文件顺序拼接为一个（concat demuxer，要求编码参数一致）"""
 
     @staticmethod
-    def concat(input_files: List[Path], output_path: Path) -> bool:
+    def concat(input_files: list[Path], output_path: Path) -> bool:
         """使用 concat demuxer 拼接，要求各文件编码/分辨率/采样率一致"""
         if len(input_files) < 2:
             print("错误: 拼接至少需要 2 个文件")
@@ -238,7 +222,7 @@ class VideoConcat:
                    str(output_path)]
 
             print(f"拼接: {len(input_files)} 个文件 → {output_path.name}")
-            print(f"  （要求各文件编码/分辨率/时基一致，否则需先统一格式）")
+            print("  （要求各文件编码/分辨率/时基一致，否则需先统一格式）")
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 拼接完成: {output_path.name}")
@@ -246,7 +230,7 @@ class VideoConcat:
                 return True
             # 流复制失败时提示
             print(f"✗ 流复制拼接失败: {result.stderr.strip()}")
-            print(f"  提示: 各文件编码不一致时，请先用 --convert 或 ffmpeg 统一格式后再拼接")
+            print("  提示: 各文件编码不一致时，请先用 --convert 或 ffmpeg 统一格式后再拼接")
             return False
         except Exception as e:
             print(f"✗ 错误: {e}")
@@ -265,7 +249,7 @@ class VideoScaler:
 
     @staticmethod
     def scale(video_path: Path, width: int, height: int,
-              output_path: Optional[Path] = None,
+              output_path: Path | None = None,
               keep_aspect: bool = True) -> bool:
         """缩放视频到指定分辨率，默认保持宽高比并填充黑边"""
         if not video_path.exists():
@@ -319,7 +303,7 @@ class VideoRotator:
 
     @staticmethod
     def rotate(video_path: Path, degrees: int,
-               output_path: Optional[Path] = None) -> bool:
+               output_path: Path | None = None) -> bool:
         """旋转视频，90/270 会交换宽高"""
         if not video_path.exists():
             print(f"错误: 文件不存在 {video_path}")
@@ -371,7 +355,7 @@ class VideoCropper:
     @staticmethod
     def crop(video_path: Path, width: int, height: int,
              x: int, y: int,
-             output_path: Optional[Path] = None) -> bool:
+             output_path: Path | None = None) -> bool:
         """裁剪视频画面，从 (x,y) 起取 width x height 区域"""
         if not video_path.exists():
             print(f"错误: 文件不存在 {video_path}")
@@ -427,7 +411,7 @@ class FpsConverter:
 
     @staticmethod
     def convert(video_path: Path, fps: float,
-                output_path: Optional[Path] = None) -> bool:
+                output_path: Path | None = None) -> bool:
         """通过 fps 滤镜改变视频帧率（插值/丢帧）"""
         if not video_path.exists():
             print(f"错误: 文件不存在 {video_path}")
@@ -473,7 +457,7 @@ class ContactSheet:
 
     @staticmethod
     def generate(video_path: Path, rows: int = 4, cols: int = 4,
-                 output_path: Optional[Path] = None,
+                 output_path: Path | None = None,
                  width: int = 320) -> bool:
         """生成视频缩略图组合"""
         if not video_path.exists():

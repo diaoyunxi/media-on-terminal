@@ -2,30 +2,14 @@
 # -*- coding: utf-8 -*-
 """配置管理"""
 
-import sys
 import os
+
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-import re
-import signal
-import platform
-import subprocess
-import shutil
-import argparse
-import time
-import threading
-import random
 import json
-import hashlib
-import struct
+import time
 import zipfile
-import tempfile
-import base64
-import urllib.request
-import urllib.error
-import urllib.parse
-import unicodedata
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
+
 from mp.constants import CONFIG_DIR, CONFIG_FILE
 from mp.media_info import MediaInfo
 
@@ -83,7 +67,7 @@ class ConfigBackup:
     """配置备份 - 备份和恢复 mp 配置（zip）"""
 
     @staticmethod
-    def backup(output_path: Optional[Path] = None) -> bool:
+    def backup(output_path: Path | None = None) -> bool:
         """备份整个 ~/.config/mp 配置目录到 zip"""
         if not CONFIG_DIR.exists():
             print(f"✗ 配置目录不存在: {CONFIG_DIR}")
@@ -132,7 +116,7 @@ class ConfigBackup:
             return False
 
         if input_path.suffix.lower() != '.zip':
-            print(f"✗ 仅支持 .zip 备份文件")
+            print("✗ 仅支持 .zip 备份文件")
             return False
 
         print(f"恢复配置: {input_path} → {CONFIG_DIR}")

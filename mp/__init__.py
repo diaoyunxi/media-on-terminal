@@ -10,58 +10,104 @@ __version__ = "2.12.0"
 
 # 公共导入
 import os
+
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
 
-from mp.constants import (
-    CONFIG_DIR, CONFIG_FILE, PLAYLIST_DIR,
-    FAVORITES_FILE, HISTORY_FILE, RADIO_FILE,
-    UPDATE_CACHE_FILE, GITHUB_REPO,
-)
-
-from mp.utils import (
-    _display_width, _truncate_to_width,
-    get_pip_install_args, install_system_dependencies,
-    check_and_install_dependencies, check_ffmpeg,
+from mp.audio_tools import (
+    AudioExtractor,
+    AudioMerger,
+    AudioMixMixer,
+    AudioRecorder,
+    AudioReverser,
+    AudioTrimmer,
+    AVMuxer,
+    ChannelConverter,
+    RingtoneMaker,
+    SampleRateConverter,
 )
 from mp.config import Config, ConfigBackup
-from mp.media_info import MediaInfo
-from mp.managers import (
-    BookmarkManager, FavoritesManager, HistoryManager,
-    SleepTimer, ABLoop, RadioManager, QueueManager, StatisticsManager,
+from mp.constants import (
+    CONFIG_DIR,
+    CONFIG_FILE,
+    FAVORITES_FILE,
+    GITHUB_REPO,
+    HISTORY_FILE,
+    PLAYLIST_DIR,
+    RADIO_FILE,
+    UPDATE_CACHE_FILE,
 )
+from mp.download import download_song_interactive
 from mp.effects import (
-    AudioConverter, Equalizer, CrossfadeManager, PitchControl,
-    FadeEffect, ReverbEffect, AudioNormalizer, VolumeGain, VolumeRamp,
+    AudioConverter,
+    AudioNormalizer,
+    CrossfadeManager,
+    Equalizer,
+    FadeEffect,
+    PitchControl,
+    ReverbEffect,
+    VolumeGain,
+    VolumeRamp,
 )
 from mp.file_browser import FileBrowser
-from mp.noise import NoiseGenerator
-from mp.metadata import (
-    MetadataEditor, BatchRenamer, MetadataStripper,
-    BPMDetector, SubtitleExtractor,
-)
+from mp.help_text import show_help
 from mp.lyrics import LyricsDisplay, OnlineLyricsFetcher
-from mp.visual import (
-    AudioVisualizer, SpectrogramGenerator, WaveformGenerator,
-    CoverExtractor, AsciiArtExporter,
+from mp.managers import (
+    ABLoop,
+    BookmarkManager,
+    FavoritesManager,
+    HistoryManager,
+    QueueManager,
+    RadioManager,
+    SleepTimer,
+    StatisticsManager,
 )
-from mp.playlist import Playlist, PlaylistIO
+from mp.media_info import MediaInfo
+from mp.media_library import MediaLibrary
+from mp.media_tools import (
+    AudioFingerprinter,
+    DuplicateFinder,
+    MediaHealthChecker,
+    MediaSplitter,
+    MetadataExporter,
+    SegmentRepeater,
+    SilenceCutter,
+)
+from mp.metadata import (
+    BatchRenamer,
+    BPMDetector,
+    MetadataEditor,
+    MetadataStripper,
+    SubtitleExtractor,
+)
+from mp.noise import NoiseGenerator
 from mp.players import AudioPlayer, VideoPlayer
-from mp.audio_tools import (
-    AudioRecorder, AudioExtractor, AudioTrimmer, AudioMerger, AudioReverser,
-    ChannelConverter, SampleRateConverter, AVMuxer, AudioMixMixer, RingtoneMaker,
+from mp.playlist import Playlist, PlaylistIO
+from mp.updater import check_for_update
+from mp.utils import (
+    _display_width,
+    _truncate_to_width,
+    check_and_install_dependencies,
+    check_ffmpeg,
+    get_pip_install_args,
+    install_system_dependencies,
 )
 from mp.video_tools import (
-    GifConverter, ScreenshotCapture, VideoConcat, VideoScaler,
-    VideoRotator, VideoCropper, FpsConverter, ContactSheet,
+    ContactSheet,
+    FpsConverter,
+    GifConverter,
+    ScreenshotCapture,
+    VideoConcat,
+    VideoCropper,
+    VideoRotator,
+    VideoScaler,
 )
-from mp.media_tools import (
-    MediaSplitter, SilenceCutter, SegmentRepeater,
-    MediaHealthChecker, DuplicateFinder, MetadataExporter, AudioFingerprinter,
+from mp.visual import (
+    AsciiArtExporter,
+    AudioVisualizer,
+    CoverExtractor,
+    SpectrogramGenerator,
+    WaveformGenerator,
 )
-from mp.media_library import MediaLibrary
-from mp.updater import check_for_update
-from mp.download import download_song_interactive
-from mp.help_text import show_help
 
 __all__ = [
     "__version__",

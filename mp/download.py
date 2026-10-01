@@ -2,33 +2,19 @@
 # -*- coding: utf-8 -*-
 """歌曲下载"""
 
-import sys
 import os
+import sys
+
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
 import re
-import signal
-import platform
-import subprocess
-import shutil
-import argparse
-import time
-import threading
-import random
-import json
-import hashlib
-import struct
-import zipfile
-import tempfile
-import base64
-import urllib.request
 import urllib.error
 import urllib.parse
-import unicodedata
+import urllib.request
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
 
-from mp.lyrics import OnlineLyricsFetcher
 from mp.config import Config
+from mp.lyrics import OnlineLyricsFetcher
+
 
 def download_song_interactive(config: 'Config', keyword: str, output_dir: str = None):
     """交互式歌曲下载：搜索 → 试听 → 选择下载（含歌词）
@@ -44,8 +30,8 @@ def download_song_interactive(config: 'Config', keyword: str, output_dir: str = 
     :param keyword: 搜索关键词，'__interactive__' 表示进入交互搜索
     :param output_dir: 下载输出目录，默认当前目录
     """
-    import subprocess
     import select
+    import subprocess
 
     out_dir = Path(output_dir) if output_dir else Path.cwd()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -117,8 +103,8 @@ def download_song_interactive(config: 'Config', keyword: str, output_dir: str = 
             return choice
 
         # 非阻塞读取用户输入
-        import tty
         import termios
+        import tty
 
         fd = sys.stdin.fileno()
         old_settings = termios.tcgetattr(fd)
@@ -191,7 +177,7 @@ def download_song_interactive(config: 'Config', keyword: str, output_dir: str = 
 
         return choice
 
-    def _download_lyrics_for(candidate: Tuple[str, str, str, str], save_dir: Path) -> Optional[Path]:
+    def _download_lyrics_for(candidate: tuple[str, str, str, str], save_dir: Path) -> Path | None:
         """下载候选歌曲的歌词"""
         name, artist, source, ident = candidate
         safe_name = _safe_filename(f"{name} - {artist or '未知'}")
@@ -203,7 +189,7 @@ def download_song_interactive(config: 'Config', keyword: str, output_dir: str = 
                 print(f"  ✓ 歌词已保存: {lrc_path.name}")
                 return lrc_path
             else:
-                print(f"  ! 该歌曲无有效歌词（无时间轴或纯音乐）")
+                print("  ! 该歌曲无有效歌词（无时间轴或纯音乐）")
                 return None
         except Exception as e:
             print(f"  ! 歌词下载失败: {e}")
@@ -266,7 +252,7 @@ def download_song_interactive(config: 'Config', keyword: str, output_dir: str = 
         # 步骤4: 获取播放 URL 并试听
         cand = candidates[idx]
         song_name = f"{cand[0]} - {cand[1] or '未知'}"
-        print(f"\n获取播放链接中...")
+        print("\n获取播放链接中...")
         song_url = fetcher.fetch_song_url_by_candidate(cand)
         if not song_url:
             print(f"未能获取 {song_name} 的播放链接，尝试下一个")
@@ -303,7 +289,7 @@ def download_song_interactive(config: 'Config', keyword: str, output_dir: str = 
             if _download_url_to_file(song_url, song_path):
                 print(f"  ✓ 歌曲已保存: {song_path}")
             else:
-                print(f"  ✗ 歌曲下载失败")
+                print("  ✗ 歌曲下载失败")
 
             # 下载完成后，询问是否继续搜索
             print()

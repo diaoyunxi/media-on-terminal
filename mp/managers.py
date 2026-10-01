@@ -2,33 +2,16 @@
 # -*- coding: utf-8 -*-
 """播放管理器集合"""
 
-import sys
 import os
-os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-import re
-import signal
-import platform
-import subprocess
-import shutil
-import argparse
-import time
-import threading
-import random
-import json
-import hashlib
-import struct
-import zipfile
-import tempfile
-import base64
-import urllib.request
-import urllib.error
-import urllib.parse
-import unicodedata
-from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
 
-from mp.config import Config
+os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
+import json
+import time
+from pathlib import Path
+from typing import Any
+
 from mp.constants import CONFIG_DIR, FAVORITES_FILE, HISTORY_FILE, RADIO_FILE
+
 
 class BookmarkManager:
     """书签管理 - 保存和恢复播放位置"""
@@ -36,7 +19,7 @@ class BookmarkManager:
     BOOKMARK_FILE = CONFIG_DIR / 'bookmarks.json'
     
     def __init__(self):
-        self.bookmarks: Dict[str, float] = {}
+        self.bookmarks: dict[str, float] = {}
         self.load()
     
     def load(self):
@@ -88,7 +71,7 @@ class FavoritesManager:
     """收藏管理 - 管理喜欢的歌曲"""
     
     def __init__(self):
-        self.favorites: List[str] = []
+        self.favorites: list[str] = []
         self.load()
     
     def load(self):
@@ -141,7 +124,7 @@ class FavoritesManager:
             self.add(file_path)
             return True
     
-    def get_all(self) -> List[Path]:
+    def get_all(self) -> list[Path]:
         """获取所有收藏的歌曲路径"""
         result = []
         for path_str in self.favorites:
@@ -178,7 +161,7 @@ class HistoryManager:
     MAX_HISTORY = 100  # 最多保存100条记录
     
     def __init__(self):
-        self.history: List[Dict[str, Any]] = []
+        self.history: list[dict[str, Any]] = []
         self.load()
     
     def load(self):
@@ -217,7 +200,7 @@ class HistoryManager:
         
         self.save()
     
-    def get_recent(self, count: int = 20) -> List[Dict[str, Any]]:
+    def get_recent(self, count: int = 20) -> list[dict[str, Any]]:
         """获取最近的播放记录"""
         return self.history[:count]
     
@@ -339,7 +322,7 @@ class ABLoop:
         self.point_b = 0.0
         self.is_setting_a = True
     
-    def check_position(self, current_position: float) -> Optional[float]:
+    def check_position(self, current_position: float) -> float | None:
         """检查当前位置，如果超出B点则返回A点位置"""
         if not self.is_active:
             return None
@@ -377,7 +360,7 @@ class RadioManager:
     }
     
     def __init__(self):
-        self.stations: Dict[str, str] = {}
+        self.stations: dict[str, str] = {}
         self.load()
     
     def load(self):
@@ -418,7 +401,7 @@ class RadioManager:
         print(f"电台不存在: {name}")
         return False
     
-    def get_station_url(self, name: str) -> Optional[str]:
+    def get_station_url(self, name: str) -> str | None:
         """获取电台URL"""
         return self.stations.get(name)
     
@@ -447,8 +430,8 @@ class QueueManager:
     """队列管理 - 管理播放队列，支持添加、删除、重新排序"""
 
     def __init__(self):
-        self.queue: List[Path] = []
-        self.history: List[int] = []  # 已播放的索引
+        self.queue: list[Path] = []
+        self.history: list[int] = []  # 已播放的索引
         self.current_position = -1
 
     def add(self, file_path: Path):
@@ -458,7 +441,7 @@ class QueueManager:
             return True
         return False
 
-    def add_multiple(self, files: List[Path]):
+    def add_multiple(self, files: list[Path]):
         """批量添加文件"""
         count = 0
         for f in files:
@@ -490,21 +473,21 @@ class QueueManager:
         self.history.clear()
         self.current_position = -1
 
-    def get_next(self) -> Optional[Path]:
+    def get_next(self) -> Path | None:
         """获取下一首"""
         self.current_position += 1
         if self.current_position < len(self.queue):
             return self.queue[self.current_position]
         return None
 
-    def get_previous(self) -> Optional[Path]:
+    def get_previous(self) -> Path | None:
         """获取上一首"""
         if self.current_position > 0:
             self.current_position -= 1
             return self.queue[self.current_position]
         return None
 
-    def get_current(self) -> Optional[Path]:
+    def get_current(self) -> Path | None:
         """获取当前文件"""
         if 0 <= self.current_position < len(self.queue):
             return self.queue[self.current_position]
@@ -600,7 +583,7 @@ class StatisticsManager:
     def display(self):
         """显示统计信息"""
         print(f"\n{'='*60}")
-        print(f"  播放统计")
+        print("  播放统计")
         print(f"{'='*60}")
 
         # 总体统计
@@ -612,21 +595,21 @@ class StatisticsManager:
 
         # 格式统计
         if self.stats['songs_by_format']:
-            print(f"\n  格式分布:")
+            print("\n  格式分布:")
             sorted_formats = sorted(self.stats['songs_by_format'].items(), key=lambda x: x[1], reverse=True)
             for fmt, count in sorted_formats[:5]:
                 print(f"    {fmt.upper():6s}: {count:3d} 首")
 
         # 最常播放
         if self.stats['most_played']:
-            print(f"\n  最常播放 (Top 5):")
+            print("\n  最常播放 (Top 5):")
             sorted_songs = sorted(self.stats['most_played'].items(), key=lambda x: x[1], reverse=True)
             for i, (path, count) in enumerate(sorted_songs[:5], 1):
                 name = Path(path).name
                 print(f"    {i}. {name} ({count}次)")
 
         # 最近7天
-        print(f"\n  最近7天:")
+        print("\n  最近7天:")
         for i in range(6, -1, -1):
             date = (time.time() - i * 86400)
             date_str = time.strftime('%Y-%m-%d', time.localtime(date))
