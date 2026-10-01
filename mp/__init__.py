@@ -64,6 +64,14 @@ from mp.download import download_song_interactive
 from mp.help_text import show_help
 
 __all__ = [
+    # Constants
+    "CONFIG_DIR", "CONFIG_FILE", "PLAYLIST_DIR",
+    "FAVORITES_FILE", "HISTORY_FILE", "RADIO_FILE",
+    "UPDATE_CACHE_FILE", "GITHUB_REPO",
+    # Utils
+    "_display_width", "_truncate_to_width",
+    "get_pip_install_args", "install_system_dependencies",
+    "check_and_install_dependencies", "check_ffmpeg",
     "__version__",
     "Config", "ConfigBackup", "MediaInfo",
     "BookmarkManager", "FavoritesManager", "HistoryManager",
