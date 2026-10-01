@@ -26,7 +26,10 @@ import urllib.parse
 import unicodedata
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
+import logging
 from mp.constants import CONFIG_DIR, CONFIG_FILE
+
+logger = logging.getLogger(__name__)
 from mp.media_info import MediaInfo
 
 
@@ -57,8 +60,8 @@ class Config:
                 with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
                     saved = json.load(f)
                     self.config.update(saved)
-        except Exception:
-            pass
+        except (json.JSONDecodeError, IOError) as e:
+            logger.warning("配置文件加载失败，将使用默认配置: %s", e)
     
     def save(self):
         """保存配置"""
@@ -66,8 +69,8 @@ class Config:
             CONFIG_DIR.mkdir(parents=True, exist_ok=True)
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f, indent=2)
-        except Exception:
-            pass
+        except (IOError, OSError) as e:
+            logger.warning("配置保存失败: %s", e)
     
     def get(self, key, default=None):
         return self.config.get(key, default)
