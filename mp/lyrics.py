@@ -2,32 +2,19 @@
 # -*- coding: utf-8 -*-
 """歌词显示与在线搜索"""
 
-import sys
 import os
+
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-import re
-import signal
-import platform
-import subprocess
-import shutil
-import argparse
-import time
-import threading
-import random
-import json
-import hashlib
-import struct
-import zipfile
-import tempfile
 import base64
-import urllib.request
+import json
+import re
+import subprocess
 import urllib.error
 import urllib.parse
-import unicodedata
+import urllib.request
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
+from typing import Any
 
-from mp.config import Config
 
 class LyricsDisplay:
     """歌词显示类 - 支持本地 .lrc 文件和在线搜索
@@ -41,13 +28,13 @@ class LyricsDisplay:
 
     def __init__(self, file_path: Path):
         self.file_path = file_path
-        self.lyrics: List[tuple] = []  # (时间戳, 歌词内容)
+        self.lyrics: list[tuple] = []  # (时间戳, 歌词内容)
         self.current_index = -1
         self.offset = 0.0  # 歌词时间偏移（秒）
         self.enabled = True
         # 在线搜索相关
-        self.fetcher: Optional[OnlineLyricsFetcher] = None
-        self.online_source: Optional[str] = None  # 当前歌词来源 "qq" / "netease" / None(本地)
+        self.fetcher: OnlineLyricsFetcher | None = None
+        self.online_source: str | None = None  # 当前歌词来源 "qq" / "netease" / None(本地)
         self.auto_searched: bool = False  # 是否已尝试过自动搜索
         self.load_lyrics()
 
@@ -55,7 +42,7 @@ class LyricsDisplay:
         """获取同名 .lrc 文件路径"""
         return self.file_path.with_suffix('.lrc')
 
-    def _find_local_lrc(self) -> Optional[Path]:
+    def _find_local_lrc(self) -> Path | None:
         """查找本地 .lrc 文件（含同名 .txt 回退）"""
         lrc_path = self._lrc_path()
         if lrc_path.exists():
@@ -251,7 +238,7 @@ class LyricsDisplay:
             self._save_lrc(lrc_text)
         return True
 
-    def auto_search_online(self) -> Tuple[str, Optional[str]]:
+    def auto_search_online(self) -> tuple[str, str | None]:
         """自动在线搜索（不覆盖本地已存在的 .lrc）
 
         返回:
@@ -280,11 +267,11 @@ class LyricsDisplay:
         elif status == "no_result":
             return "no_result", f"未找到 '{keyword}' 的歌词"
         elif status == "no_timeline":
-            return "no_timeline", f"找到歌词但无时间轴，已丢弃"
+            return "no_timeline", "找到歌词但无时间轴，已丢弃"
         else:
             return "network_error", "网络搜索失败"
 
-    def manual_search_candidates(self, keyword: Optional[str] = None) -> Tuple[str, List[Tuple[str, str, str, str]], str]:
+    def manual_search_candidates(self, keyword: str | None = None) -> tuple[str, list[tuple[str, str, str, str]], str]:
         """手动搜索：返回候选列表
 
         参数:
@@ -304,7 +291,7 @@ class LyricsDisplay:
             return "no_result", [], used
         return "ok", candidates, used
 
-    def apply_candidate_by_index(self, index: int, overwrite: bool = True) -> Tuple[str, Optional[str]]:
+    def apply_candidate_by_index(self, index: int, overwrite: bool = True) -> tuple[str, str | None]:
         """应用候选索引对应的歌词（手动选择，默认覆盖本地）
 
         返回:
@@ -344,10 +331,10 @@ class OnlineLyricsFetcher:
 
     def __init__(self):
         # 候选结果缓存：(song_name, artist, source, song_id_or_mid)
-        self._cached_candidates: List[Tuple[str, str, str, str]] = []
+        self._cached_candidates: list[tuple[str, str, str, str]] = []
 
     @staticmethod
-    def _http_get(url: str, extra_headers: Optional[Dict[str, str]] = None) -> str:
+    def _http_get(url: str, extra_headers: dict[str, str] | None = None) -> str:
         """发起 GET 请求并返回文本
 
         参数:
@@ -416,7 +403,7 @@ class OnlineLyricsFetcher:
         s = re.sub(r"\s+", " ", s).strip()
         return s
 
-    def _qq_search(self, keyword: str, limit: int = 5) -> List[Dict[str, Any]]:
+    def _qq_search(self, keyword: str, limit: int = 5) -> list[dict[str, Any]]:
         """QQ音乐搜索"""
         url = (f"https://c.y.qq.com/soso/fcgi-bin/client_search_cp"
                f"?w={urllib.parse.quote(keyword)}&format=json&n={limit}&p=1")
@@ -437,7 +424,7 @@ class OnlineLyricsFetcher:
         data = json.loads(text)
         return data.get("lyric", "") or ""
 
-    def _netease_search(self, keyword: str, limit: int = 5) -> List[Dict[str, Any]]:
+    def _netease_search(self, keyword: str, limit: int = 5) -> list[dict[str, Any]]:
         """网易云搜索"""
         url = (f"https://music.163.com/api/search/get"
                f"?s={urllib.parse.quote(keyword)}&type=1&limit={limit}")
@@ -452,7 +439,7 @@ class OnlineLyricsFetcher:
         data = json.loads(text)
         return data.get("lrc", {}).get("lyric", "") or ""
 
-    def _kugou_search(self, keyword: str, limit: int = 5) -> List[Dict[str, Any]]:
+    def _kugou_search(self, keyword: str, limit: int = 5) -> list[dict[str, Any]]:
         """酷狗音乐搜索（先搜歌，再取 hash）
 
         酷狗搜索接口返回歌曲 hash，用于后续获取歌词。
@@ -493,13 +480,13 @@ class OnlineLyricsFetcher:
             return ""
         return base64.b64decode(content).decode("utf-8", errors="replace")
 
-    def _collect_candidates(self, keyword: str) -> List[Tuple[str, str, str, str]]:
+    def _collect_candidates(self, keyword: str) -> list[tuple[str, str, str, str]]:
         """聚合三源搜索结果作为候选
 
         返回: [(song_name, artist, source, id_or_mid), ...]
         源：QQ音乐 → 网易云 → 酷狗
         """
-        candidates: List[Tuple[str, str, str, str]] = []
+        candidates: list[tuple[str, str, str, str]] = []
         # QQ音乐候选
         try:
             for s in self._qq_search(keyword):
@@ -532,7 +519,7 @@ class OnlineLyricsFetcher:
             pass
         return candidates
 
-    def _fetch_lyric_by_candidate(self, candidate: Tuple[str, str, str, str]) -> str:
+    def _fetch_lyric_by_candidate(self, candidate: tuple[str, str, str, str]) -> str:
         """根据候选获取歌词文本"""
         name, artist, source, ident = candidate
         try:
@@ -548,7 +535,7 @@ class OnlineLyricsFetcher:
         return ""
 
     @staticmethod
-    def _score_candidate(keyword: str, candidate: Tuple[str, str, str, str]) -> int:
+    def _score_candidate(keyword: str, candidate: tuple[str, str, str, str]) -> int:
         """计算候选与关键词的匹配度评分，分数越高越匹配
 
         评分规则：
@@ -601,7 +588,7 @@ class OnlineLyricsFetcher:
                 score += 5
         return score
 
-    def search_first(self, keyword: str) -> Tuple[str, Optional[str], Optional[str]]:
+    def search_first(self, keyword: str) -> tuple[str, str | None, str | None]:
         """自动搜索：返回首个带时间轴的歌词
 
         参数:
@@ -662,7 +649,7 @@ class OnlineLyricsFetcher:
 
         return "no_timeline", None, None
 
-    def search_candidates(self, keyword: str, top_n: int = 5) -> List[Tuple[str, str, str, str]]:
+    def search_candidates(self, keyword: str, top_n: int = 5) -> list[tuple[str, str, str, str]]:
         """手动搜索：返回候选列表（前 top_n 项）
 
         返回: [(song_name, artist, source, id_or_mid), ...]
@@ -674,7 +661,7 @@ class OnlineLyricsFetcher:
         self._cached_candidates = candidates
         return candidates[:top_n]
 
-    def fetch_lyric_by_index(self, index: int) -> Tuple[str, Optional[str], Optional[str]]:
+    def fetch_lyric_by_index(self, index: int) -> tuple[str, str | None, str | None]:
         """根据缓存候选索引获取歌词
 
         返回:
@@ -691,13 +678,13 @@ class OnlineLyricsFetcher:
         return "ok", lrc, cand[2]
 
     @property
-    def cached_candidates(self) -> List[Tuple[str, str, str, str]]:
+    def cached_candidates(self) -> list[tuple[str, str, str, str]]:
         """已缓存的候选列表（只读视图）"""
         return list(self._cached_candidates)
 
     # ===== 歌曲播放/下载 URL 获取 =====
 
-    def _qq_song_url(self, songmid: str) -> Optional[str]:
+    def _qq_song_url(self, songmid: str) -> str | None:
         """QQ音乐获取歌曲播放 URL（优先高音质）
 
         返回: 播放 URL 字符串，失败返回 None
@@ -733,7 +720,7 @@ class OnlineLyricsFetcher:
         except Exception:
             return None
 
-    def _netease_song_url(self, song_id: int) -> Optional[str]:
+    def _netease_song_url(self, song_id: int) -> str | None:
         """网易云获取歌曲播放 URL（优先 320kbps）
 
         返回: 播放 URL 字符串，失败返回 None
@@ -751,7 +738,7 @@ class OnlineLyricsFetcher:
         except Exception:
             return None
 
-    def _kugou_song_url(self, hash_id: str) -> Optional[str]:
+    def _kugou_song_url(self, hash_id: str) -> str | None:
         """酷狗获取歌曲播放 URL
 
         返回: 播放 URL 字符串，失败返回 None
@@ -767,7 +754,7 @@ class OnlineLyricsFetcher:
         except Exception:
             return None
 
-    def fetch_song_url_by_candidate(self, candidate: Tuple[str, str, str, str]) -> Optional[str]:
+    def fetch_song_url_by_candidate(self, candidate: tuple[str, str, str, str]) -> str | None:
         """根据候选获取歌曲播放 URL
 
         参数:
@@ -788,7 +775,7 @@ class OnlineLyricsFetcher:
             return None
         return None
 
-    def fetch_song_url_by_index(self, index: int) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    def fetch_song_url_by_index(self, index: int) -> tuple[str | None, str | None, str | None]:
         """根据缓存候选索引获取歌曲播放 URL
 
         返回:

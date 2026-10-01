@@ -2,30 +2,14 @@
 # -*- coding: utf-8 -*-
 """可视化与频谱"""
 
-import sys
 import os
+
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-import re
-import signal
-import platform
-import subprocess
-import shutil
-import argparse
-import time
-import threading
-import random
 import json
-import hashlib
-import struct
-import zipfile
-import tempfile
-import base64
-import urllib.request
-import urllib.error
-import urllib.parse
-import unicodedata
+import shutil
+import subprocess
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
+
 from mp.media_info import MediaInfo
 
 
@@ -38,8 +22,8 @@ class AudioVisualizer:
     def __init__(self, width: int = 60, height: int = 10):
         self.width = width
         self.height = height
-        self.fft_data: List[float] = [0.0] * width
-        self.smoothing: List[float] = [0.0] * width
+        self.fft_data: list[float] = [0.0] * width
+        self.smoothing: list[float] = [0.0] * width
         self.smooth_factor = 0.3
     
     def update(self, samples: bytes):
@@ -118,8 +102,8 @@ class SpectrogramGenerator:
     """频谱图生成 - 生成音频频谱图图片"""
 
     @staticmethod
-    def generate(file_path: Path, output_path: Optional[Path] = None,
-                 start: float = 0.0, duration: Optional[float] = None,
+    def generate(file_path: Path, output_path: Path | None = None,
+                 start: float = 0.0, duration: float | None = None,
                  size: str = '1024x512') -> bool:
         """生成音频频谱图 PNG"""
         if not file_path.exists():
@@ -163,8 +147,8 @@ class WaveformGenerator:
     """波形图生成 - 生成音频波形图图片"""
 
     @staticmethod
-    def generate(file_path: Path, output_path: Optional[Path] = None,
-                 start: float = 0.0, duration: Optional[float] = None,
+    def generate(file_path: Path, output_path: Path | None = None,
+                 start: float = 0.0, duration: float | None = None,
                  size: str = '1280x240') -> bool:
         """生成音频波形图 PNG"""
         if not file_path.exists():
@@ -209,7 +193,7 @@ class CoverExtractor:
     """封面提取 - 从音频/视频文件提取嵌入的封面或海报图片"""
 
     @staticmethod
-    def _find_cover_stream(file_path: Path) -> Optional[int]:
+    def _find_cover_stream(file_path: Path) -> int | None:
         """查找封面/海报流（abs index），未找到返回 None"""
         cmd = [
             'ffprobe', '-v', 'quiet',
@@ -236,7 +220,7 @@ class CoverExtractor:
         return None
 
     @staticmethod
-    def extract(file_path: Path, output_path: Optional[Path] = None) -> bool:
+    def extract(file_path: Path, output_path: Path | None = None) -> bool:
         """提取封面/海报图片"""
         if not file_path.exists():
             print(f"错误: 文件不存在 {file_path}")
@@ -281,9 +265,9 @@ class AsciiArtExporter:
     CHARS = " .:-=+*#%@"  # 由暗到亮 10 级
 
     @staticmethod
-    def export(video_path: Path, output_path: Optional[Path] = None,
+    def export(video_path: Path, output_path: Path | None = None,
                width: int = 80, fps: int = 10,
-               max_duration: Optional[float] = None) -> bool:
+               max_duration: float | None = None) -> bool:
         if not shutil.which('ffmpeg'):
             print("错误: 未安装 ffmpeg")
             return False
@@ -340,7 +324,7 @@ class AsciiArtExporter:
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(f"# ASCII 艺术动画 - {video_path.name}\n")
                 f.write(f"# 分辨率: {width}x{height} @ {fps}fps，共 {total_frames} 帧\n")
-                f.write(f"# 播放: 用 less/cat 查看静态帧；动画播放请用原视频\n\n")
+                f.write("# 播放: 用 less/cat 查看静态帧；动画播放请用原视频\n\n")
                 for i, frame in enumerate(frames_text):
                     f.write(f"--- 帧 {i + 1}/{total_frames} ---\n")
                     f.write(frame)

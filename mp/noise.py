@@ -2,30 +2,13 @@
 # -*- coding: utf-8 -*-
 """噪声生成器"""
 
-import sys
 import os
+import sys
+
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-import re
-import signal
 import platform
 import subprocess
-import shutil
-import argparse
 import time
-import threading
-import random
-import json
-import hashlib
-import struct
-import zipfile
-import tempfile
-import base64
-import urllib.request
-import urllib.error
-import urllib.parse
-import unicodedata
-from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
 
 
 class NoiseGenerator:
@@ -45,31 +28,31 @@ class NoiseGenerator:
         self.process = None
         self.is_playing = False
 
-    def _generate_noise_cmd(self) -> List[str]:
+    def _generate_noise_cmd(self) -> list[str]:
         """生成 ffmpeg 噪声命令"""
         if self.noise_type == 'white':
             return [
                 'ffmpeg', '-f', 'lavfi', '-i',
-                f'anoisesrc=color=white:amplitude=0.3',
+                'anoisesrc=color=white:amplitude=0.3',
                 '-f', 'wav', '-'
             ]
         elif self.noise_type == 'pink':
             return [
                 'ffmpeg', '-f', 'lavfi', '-i',
-                f'anoisesrc=color=pink:amplitude=0.3',
+                'anoisesrc=color=pink:amplitude=0.3',
                 '-f', 'wav', '-'
             ]
         elif self.noise_type == 'brown':
             return [
                 'ffmpeg', '-f', 'lavfi', '-i',
-                f'anoisesrc=color=brown:amplitude=0.3',
+                'anoisesrc=color=brown:amplitude=0.3',
                 '-f', 'wav', '-'
             ]
         elif self.noise_type == 'rain':
             # 模拟雨声：白噪声 + 低通滤波
             return [
                 'ffmpeg', '-f', 'lavfi', '-i',
-                f'anoisesrc=color=white:amplitude=0.5',
+                'anoisesrc=color=white:amplitude=0.5',
                 '-af', 'lowpass=f=2000,highpass=f=200,tremolo=f=8:d=0.7',
                 '-f', 'wav', '-'
             ]
@@ -77,7 +60,7 @@ class NoiseGenerator:
             # 模拟海浪：棕噪声 + 低频调制
             return [
                 'ffmpeg', '-f', 'lavfi', '-i',
-                f'anoisesrc=color=brown:amplitude=0.4',
+                'anoisesrc=color=brown:amplitude=0.4',
                 '-af', 'lowpass=f=500,tremolo=f=0.15:d=0.8',
                 '-f', 'wav', '-'
             ]

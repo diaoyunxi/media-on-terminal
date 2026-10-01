@@ -2,33 +2,14 @@
 # -*- coding: utf-8 -*-
 """音频效果器"""
 
-import sys
 import os
-os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-import re
-import signal
-import platform
-import subprocess
-import shutil
-import argparse
-import time
-import threading
-import random
-import json
-import hashlib
-import struct
-import zipfile
-import tempfile
-import base64
-import urllib.request
-import urllib.error
-import urllib.parse
-import unicodedata
-from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
 
-from mp.config import Config
+os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
+import subprocess
+from pathlib import Path
+
 from mp.media_info import MediaInfo
+
 
 class AudioConverter:
     """音频转换器 - 在不同格式间转换音频文件"""
@@ -44,7 +25,7 @@ class AudioConverter:
     }
 
     @staticmethod
-    def convert(input_path: Path, output_format: str, output_dir: Optional[Path] = None) -> bool:
+    def convert(input_path: Path, output_format: str, output_dir: Path | None = None) -> bool:
         """转换音频格式"""
         if not input_path.exists():
             print(f"错误: 文件不存在 {input_path}")
@@ -92,7 +73,7 @@ class AudioConverter:
             return False
 
     @staticmethod
-    def batch_convert(input_files: List[Path], output_format: str, output_dir: Optional[Path] = None) -> int:
+    def batch_convert(input_files: list[Path], output_format: str, output_dir: Path | None = None) -> int:
         """批量转换音频格式"""
         success_count = 0
         total = len(input_files)
@@ -205,7 +186,7 @@ class Equalizer:
     def list_presets(self):
         """列出所有预设"""
         print(f"\n{'='*60}")
-        print(f"  均衡器预设")
+        print("  均衡器预设")
         print(f"{'='*60}")
         for name in self.PRESETS.keys():
             marker = "▶ " if name == self.current_preset else "  "
@@ -286,7 +267,7 @@ class FadeEffect:
 
     @staticmethod
     def apply_fade(file_path: Path, fade_in: float = 0.0, fade_out: float = 0.0,
-                   output_path: Optional[Path] = None) -> bool:
+                   output_path: Path | None = None) -> bool:
         """添加淡入/淡出效果
         fade_in: 淡入时长（秒）
         fade_out: 淡出时长（秒）
@@ -360,7 +341,7 @@ class ReverbEffect:
 
     @staticmethod
     def list_presets():
-        print(f"\n可用混响预设:")
+        print("\n可用混响预设:")
         print(f"{'='*40}")
         for name, (desc, _) in ReverbEffect.PRESETS.items():
             print(f"  {name:12s} - {desc}")
@@ -368,7 +349,7 @@ class ReverbEffect:
 
     @staticmethod
     def apply_reverb(file_path: Path, preset: str = 'room',
-                     output_path: Optional[Path] = None) -> bool:
+                     output_path: Path | None = None) -> bool:
         """应用混响预设"""
         if not file_path.exists():
             print(f"错误: 文件不存在 {file_path}")
@@ -420,7 +401,7 @@ class AudioNormalizer:
 
     @staticmethod
     def normalize(file_path: Path, method: str = 'loudnorm',
-                  output_path: Optional[Path] = None) -> bool:
+                  output_path: Path | None = None) -> bool:
         """归一化音频音量"""
         if not file_path.exists():
             print(f"错误: 文件不存在 {file_path}")
@@ -483,7 +464,7 @@ class AudioNormalizer:
             return False
 
     @staticmethod
-    def batch_normalize(file_paths: List[Path], method: str = 'loudnorm') -> int:
+    def batch_normalize(file_paths: list[Path], method: str = 'loudnorm') -> int:
         """批量归一化"""
         success = 0
         total = len(file_paths)
@@ -505,7 +486,7 @@ class VolumeGain:
 
     @staticmethod
     def apply(file_path: Path, gain_db: float,
-              output_path: Optional[Path] = None) -> bool:
+              output_path: Path | None = None) -> bool:
         """对音频应用音量增益"""
         if not file_path.exists():
             print(f"错误: 文件不存在 {file_path}")
@@ -543,7 +524,7 @@ class VolumeGain:
             return False
 
     @staticmethod
-    def batch_apply(files: List[Path], gain_db: float) -> int:
+    def batch_apply(files: list[Path], gain_db: float) -> int:
         """批量应用音量增益"""
         success = 0
         total = len(files)
@@ -565,7 +546,7 @@ class VolumeRamp:
 
     @staticmethod
     def apply(file_path: Path, start_db: float, end_db: float,
-              output_path: Optional[Path] = None) -> bool:
+              output_path: Path | None = None) -> bool:
         info = MediaInfo.get_info(file_path)
         duration = info.get('duration', 0)
         if duration <= 0:

@@ -2,30 +2,13 @@
 # -*- coding: utf-8 -*-
 """文件浏览器"""
 
-import sys
 import os
+import sys
+
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-import re
-import signal
 import platform
-import subprocess
-import shutil
-import argparse
 import time
-import threading
-import random
-import json
-import hashlib
-import struct
-import zipfile
-import tempfile
-import base64
-import urllib.request
-import urllib.error
-import urllib.parse
-import unicodedata
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
 
 
 class FileBrowser:
@@ -36,12 +19,12 @@ class FileBrowser:
         '.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv'
     }
 
-    def __init__(self, start_dir: Optional[Path] = None):
+    def __init__(self, start_dir: Path | None = None):
         self.current_dir = start_dir or Path.home()
         self.cursor = 0
         self.scroll_offset = 0
-        self.selected: List[Path] = []
-        self.entries: List[Path] = []
+        self.selected: list[Path] = []
+        self.entries: list[Path] = []
         self.refresh_entries()
 
     def refresh_entries(self):
@@ -154,14 +137,14 @@ class FileBrowser:
         print(f"\033[90m{' ' * padding}{help_text}\033[0m")
         sys.stdout.flush()
 
-    def run(self) -> List[Path]:
+    def run(self) -> list[Path]:
         """运行文件浏览器，返回选中的文件列表"""
         if platform.system() == "Windows":
             return self._run_windows()
         else:
             return self._run_unix()
 
-    def _run_unix(self) -> List[Path]:
+    def _run_unix(self) -> list[Path]:
         import select
         import termios
         import tty
@@ -227,7 +210,7 @@ class FileBrowser:
 
         return self.selected.copy()
 
-    def _run_windows(self) -> List[Path]:
+    def _run_windows(self) -> list[Path]:
         import msvcrt
 
         while True:

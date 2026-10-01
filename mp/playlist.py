@@ -2,30 +2,12 @@
 # -*- coding: utf-8 -*-
 """播放列表"""
 
-import sys
 import os
+
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-import re
-import signal
-import platform
-import subprocess
-import shutil
-import argparse
-import time
-import threading
 import random
-import json
-import hashlib
-import struct
-import zipfile
-import tempfile
-import base64
-import urllib.request
-import urllib.error
-import urllib.parse
-import unicodedata
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
+
 from mp.constants import PLAYLIST_DIR
 from mp.media_info import MediaInfo
 
@@ -34,9 +16,9 @@ class Playlist:
     """播放列表类"""
     
     def __init__(self):
-        self.files: List[Path] = []
+        self.files: list[Path] = []
         self.current_index = 0
-        self.shuffled_order: List[int] = []
+        self.shuffled_order: list[int] = []
         self.is_shuffled = False
     
     def add_file(self, file_path: Path):
@@ -72,7 +54,7 @@ class Playlist:
         self.current_index = 0
         self.shuffled_order.clear()
     
-    def get_current(self) -> Optional[Path]:
+    def get_current(self) -> Path | None:
         """获取当前文件"""
         if not self.files:
             return None
@@ -86,7 +68,7 @@ class Playlist:
             return self.files[idx]
         return None
     
-    def next(self) -> Optional[Path]:
+    def next(self) -> Path | None:
         """下一首"""
         if not self.files:
             return None
@@ -98,7 +80,7 @@ class Playlist:
         
         return self.get_current()
     
-    def previous(self) -> Optional[Path]:
+    def previous(self) -> Path | None:
         """上一首"""
         if not self.files:
             return None
@@ -193,7 +175,7 @@ class PlaylistIO:
     """播放列表导入/导出 - 支持 M3U/M3U8 格式"""
 
     @staticmethod
-    def export_m3u(files: List[Path], output_path: Path, playlist_name: str = 'Playlist') -> bool:
+    def export_m3u(files: list[Path], output_path: Path, playlist_name: str = 'Playlist') -> bool:
         """导出为 M3U 播放列表文件"""
         if not files:
             print("错误: 播放列表为空")
@@ -225,13 +207,13 @@ class PlaylistIO:
             return False
 
     @staticmethod
-    def import_m3u(file_path: Path) -> List[Path]:
+    def import_m3u(file_path: Path) -> list[Path]:
         """从 M3U/M3U8 文件导入播放列表"""
         if not file_path.exists():
             print(f"错误: 文件不存在 {file_path}")
             return []
 
-        files: List[Path] = []
+        files: list[Path] = []
         base_dir = file_path.parent
 
         try:

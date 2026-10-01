@@ -2,40 +2,34 @@
 # -*- coding: utf-8 -*-
 """音频/视频播放器"""
 
-import sys
 import os
+import sys
+
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-import re
-import signal
 import platform
+import signal
 import subprocess
-import shutil
-import argparse
-import time
 import threading
-import random
-import json
-import hashlib
-import struct
-import zipfile
-import tempfile
-import base64
-import urllib.request
-import urllib.error
-import urllib.parse
-import unicodedata
+import time
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
 
 from mp.config import Config
-from mp.media_info import MediaInfo
-from mp.managers import BookmarkManager, FavoritesManager, HistoryManager, SleepTimer, ABLoop, RadioManager, QueueManager, StatisticsManager
-from mp.effects import Equalizer, CrossfadeManager, PitchControl, AudioConverter
+from mp.effects import AudioConverter, CrossfadeManager, Equalizer, PitchControl
 from mp.lyrics import LyricsDisplay
-from mp.visual import AudioVisualizer
+from mp.managers import (
+    ABLoop,
+    BookmarkManager,
+    FavoritesManager,
+    HistoryManager,
+    QueueManager,
+    SleepTimer,
+    StatisticsManager,
+)
+from mp.media_info import MediaInfo
 from mp.metadata import MetadataEditor
-from mp.playlist import Playlist
 from mp.utils import _display_width, _truncate_to_width
+from mp.visual import AudioVisualizer
+
 
 class AudioPlayer:
     """音频播放器类"""
@@ -778,7 +772,7 @@ class AudioPlayer:
                             print(f"\n交叉淡入淡出: {'开启' if enabled else '关闭'}")
                         elif key == b'X':
                             self.pitch_control.reset()
-                            print(f"\n音调已重置")
+                            print("\n音调已重置")
                             self.play_from_position(self.current_position / 1000)
                         elif key == b'N':
                             # 清除进度显示，避免和交互界面叠加残留
@@ -902,7 +896,7 @@ class AudioPlayer:
                                 print(f"\n交叉淡入淡出: {'开启' if enabled else '关闭'}")
                             elif ch == 'X':
                                 self.pitch_control.reset()
-                                print(f"\n音调已重置")
+                                print("\n音调已重置")
                                 self.play_from_position(self.current_position / 1000)
                             elif ch == 'N':
                                 # 先清除进度显示，避免和交互界面叠加残留
