@@ -75,6 +75,18 @@ class FileBrowser:
         """总条目数（包括..）"""
         return len(self.entries) + (1 if self._has_parent_entry() else 0)
 
+    def _entry_at_cursor(self):
+        """返回当前游标对应的条目
+
+        游标为显示行号：有上级目录 ".." 时，第 0 行显示 ".."，
+        其后各行的条目索引需整体偏移 1；否则直接对应 entries 索引。
+        游标指向 ".." 或越界时返回 None，避免选中/进入错误的条目。
+        """
+        entry_idx = self.cursor - (1 if self._has_parent_entry() else 0)
+        if 0 <= entry_idx < len(self.entries):
+            return self.entries[entry_idx]
+        return None
+
     def _render(self):
         """渲染文件浏览器界面"""
         try:
@@ -192,20 +204,20 @@ class FileBrowser:
                             self.cursor = 0
                             self.scroll_offset = 0
                             self.refresh_entries()
-                        elif self.cursor < len(self.entries):
-                            entry = self.entries[self.cursor]
-                            if entry.is_dir():
-                                self.current_dir = entry
-                                self.cursor = 0
-                                self.scroll_offset = 0
-                                self.refresh_entries()
-                            else:
-                                self.toggle_select(entry)
+                        else:
+                            entry = self._entry_at_cursor()
+                            if entry is not None:
+                                if entry.is_dir():
+                                    self.current_dir = entry
+                                    self.cursor = 0
+                                    self.scroll_offset = 0
+                                    self.refresh_entries()
+                                else:
+                                    self.toggle_select(entry)
                     elif ch == ' ':  # Space - toggle select
-                        if self.cursor < len(self.entries):
-                            entry = self.entries[self.cursor]
-                            if entry.is_file():
-                                self.toggle_select(entry)
+                        entry = self._entry_at_cursor()
+                        if entry is not None and entry.is_file():
+                            self.toggle_select(entry)
                     elif ch == 'a':  # Select all
                         self.select_all()
                     elif ch == 'c':  # Clear selection
@@ -213,9 +225,11 @@ class FileBrowser:
                     elif ch == 'p':  # Play selected
                         if self.selected:
                             break
-                        elif self.cursor < len(self.entries) and self.entries[self.cursor].is_file():
-                            self.selected.append(self.entries[self.cursor])
-                            break
+                        else:
+                            entry = self._entry_at_cursor()
+                            if entry is not None and entry.is_file():
+                                self.selected.append(entry)
+                                break
                     elif ch in ('q', 'Q', '\x03'):
                         self.selected.clear()
                         break
@@ -248,20 +262,20 @@ class FileBrowser:
                         self.cursor = 0
                         self.scroll_offset = 0
                         self.refresh_entries()
-                    elif self.cursor < len(self.entries):
-                        entry = self.entries[self.cursor]
-                        if entry.is_dir():
-                            self.current_dir = entry
-                            self.cursor = 0
-                            self.scroll_offset = 0
-                            self.refresh_entries()
-                        else:
-                            self.toggle_select(entry)
+                    else:
+                        entry = self._entry_at_cursor()
+                        if entry is not None:
+                            if entry.is_dir():
+                                self.current_dir = entry
+                                self.cursor = 0
+                                self.scroll_offset = 0
+                                self.refresh_entries()
+                            else:
+                                self.toggle_select(entry)
                 elif key == b' ':
-                    if self.cursor < len(self.entries):
-                        entry = self.entries[self.cursor]
-                        if entry.is_file():
-                            self.toggle_select(entry)
+                    entry = self._entry_at_cursor()
+                    if entry is not None and entry.is_file():
+                        self.toggle_select(entry)
                 elif key == b'a':
                     self.select_all()
                 elif key == b'c':
@@ -269,9 +283,11 @@ class FileBrowser:
                 elif key == b'p':
                     if self.selected:
                         break
-                    elif self.cursor < len(self.entries) and self.entries[self.cursor].is_file():
-                        self.selected.append(self.entries[self.cursor])
-                        break
+                    else:
+                        entry = self._entry_at_cursor()
+                        if entry is not None and entry.is_file():
+                            self.selected.append(entry)
+                            break
                 elif key in (b'q', b'Q'):
                     self.selected.clear()
                     break
