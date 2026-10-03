@@ -3,6 +3,9 @@
 """配置管理"""
 
 import sys
+import logging
+
+logger = logging.getLogger(__name__)
 import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
 import re
@@ -57,8 +60,8 @@ class Config:
                 with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
                     saved = json.load(f)
                     self.config.update(saved)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("加载配置文件失败，将使用默认配置: %s", e)
     
     def save(self):
         """保存配置"""
@@ -66,8 +69,8 @@ class Config:
             CONFIG_DIR.mkdir(parents=True, exist_ok=True)
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f, indent=2)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("保存配置文件失败: %s", e)
     
     def get(self, key, default=None):
         return self.config.get(key, default)
