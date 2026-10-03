@@ -61,13 +61,19 @@ class Config:
             pass
     
     def save(self):
-        """保存配置"""
+        """保存配置（原子写入）"""
+        import tempfile
         try:
             CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-            with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+            fd, tmp_path = tempfile.mkstemp(dir=CONFIG_DIR, suffix=".tmp")
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f, indent=2)
+            os.replace(tmp_path, CONFIG_FILE)
         except Exception:
-            pass
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
     
     def get(self, key, default=None):
         return self.config.get(key, default)
