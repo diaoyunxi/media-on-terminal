@@ -1,0 +1,4 @@
+# Runtime dependencies (all other imports are Python stdlib)
+pygame>=2.0.0
+mutagen>=1.45.0
+yt-dlp>=2023.1.1
