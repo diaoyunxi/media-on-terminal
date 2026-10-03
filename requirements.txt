@@ -1,0 +1,13 @@
+# Core dependencies
+pygame>=2.5.0
+mutagen>=1.47.0
+yt-dlp>=2024.1.0
+
+# Optional: spectrum analysis
+numpy>=1.24.0
+
+# Optional: lyrics display
+chardet>=5.0.0
+
+# Optional: image display in terminal
+pillow>=10.0.0
