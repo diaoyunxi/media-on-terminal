@@ -57,8 +57,8 @@ class Config:
                 with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
                     saved = json.load(f)
                     self.config.update(saved)
-        except Exception:
-            pass
+        except (json.JSONDecodeError, OSError, ValueError) as e:
+            print(f"[Config] 加载配置失败，使用默认值: {e}")
     
     def save(self):
         """保存配置"""
@@ -66,8 +66,8 @@ class Config:
             CONFIG_DIR.mkdir(parents=True, exist_ok=True)
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f, indent=2)
-        except Exception:
-            pass
+        except (OSError, ValueError) as e:
+            print(f"[Config] 保存配置失败: {e}")
     
     def get(self, key, default=None):
         return self.config.get(key, default)
