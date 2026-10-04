@@ -145,7 +145,7 @@ class SpectrogramGenerator:
         ])
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, shell=False, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 频谱图已生成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -191,7 +191,7 @@ class WaveformGenerator:
         ])
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, shell=False, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 波形图已生成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -217,7 +217,7 @@ class CoverExtractor:
             '-show_streams', str(file_path)
         ]
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, shell=False, capture_output=True, text=True, timeout=30)
             if result.returncode != 0:
                 return None
             data = json.loads(result.stdout)
@@ -261,7 +261,7 @@ class CoverExtractor:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, shell=False, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists() and output_path.stat().st_size > 0:
                 print(f"✓ 封面已提取: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -310,7 +310,7 @@ class AsciiArtExporter:
 
         print(f"导出 ASCII 艺术: {video_path.name} ({width}x{height} @ {fps}fps)")
         try:
-            proc = subprocess.run(cmd, capture_output=True, timeout=30)
+            proc = subprocess.run(cmd, shell=False, capture_output=True, timeout=30)
             if proc.returncode != 0:
                 err = proc.stderr.decode(errors='ignore').strip()
                 print(f"✗ 失败: {err[:200]}")

@@ -106,7 +106,7 @@ class AudioPlayer:
                 'ffprobe', '-v', 'error', '-show_entries', 'format=duration',
                 '-of', 'default=noprint_wrappers=1:nokey=1', str(self.file_path)
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, shell=False, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and result.stdout.strip():
                 return float(result.stdout.strip())
         except Exception:
@@ -1014,7 +1014,7 @@ class VideoPlayer:
                 '-of', 'csv=p=0',
                 str(self.file_path)
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, shell=False, capture_output=True, text=True, timeout=30)
             
             if result.returncode == 0:
                 lines = result.stdout.strip().split('\n')

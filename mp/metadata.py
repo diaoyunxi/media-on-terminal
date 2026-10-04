@@ -52,7 +52,7 @@ class MetadataEditor:
                 '-show_format',
                 str(file_path)
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, shell=False, capture_output=True, text=True, timeout=30)
             if result.returncode == 0:
                 data = json.loads(result.stdout)
                 fmt_tags = data.get('format', {}).get('tags', {})
@@ -81,7 +81,7 @@ class MetadataEditor:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, shell=False, capture_output=True, text=True, timeout=30)
             if result.returncode == 0:
                 # 替换原文件
                 temp_path.replace(file_path)
@@ -226,7 +226,7 @@ class BatchRenamer:
                     '-print_format', 'json', '-show_format',
                     str(entry)
                 ]
-                r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                r = subprocess.run(cmd, shell=False, capture_output=True, text=True, timeout=30)
                 if r.returncode == 0:
                     data = json.loads(r.stdout)
                     tags = data.get('format', {}).get('tags', {})
@@ -308,7 +308,7 @@ class MetadataStripper:
 
         print(f"剥离元数据: {file_path.name}")
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, shell=False, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 src_size = file_path.stat().st_size
                 dst_size = output_path.stat().st_size
@@ -362,7 +362,7 @@ class BPMDetector:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, timeout=30)
+            result = subprocess.run(cmd, shell=False, capture_output=True, timeout=30)
             if result.returncode != 0 or not result.stdout:
                 print("✗ 无法读取音频数据")
                 return None
@@ -454,7 +454,7 @@ class SubtitleExtractor:
             str(video_path)
         ]
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, shell=False, capture_output=True, text=True, timeout=30)
             if result.returncode == 0:
                 data = json.loads(result.stdout)
                 return data.get('streams', [])
@@ -512,7 +512,7 @@ class SubtitleExtractor:
         ] + codec_args + [str(output_path)]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, shell=False, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 size = output_path.stat().st_size
                 if size == 0:

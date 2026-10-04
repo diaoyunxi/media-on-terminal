@@ -83,7 +83,7 @@ class MediaSplitter:
                        '-ss', f'{start:.3f}', '-t', f'{seg_dur:.3f}',
                        '-i', str(file_path),
                        '-c', 'copy', str(out)]
-                if subprocess.run(cmd, capture_output=True, timeout=30).returncode == 0 and out.exists():
+                if subprocess.run(cmd, shell=False, capture_output=True, timeout=30).returncode == 0 and out.exists():
                     count += 1
                     print(f"  ✓ {out.name}")
         else:
@@ -101,7 +101,7 @@ class MediaSplitter:
                        '-ss', f'{start:.3f}', '-t', f'{t:.3f}',
                        '-i', str(file_path),
                        '-c', 'copy', str(out)]
-                if subprocess.run(cmd, capture_output=True, timeout=30).returncode == 0 and out.exists():
+                if subprocess.run(cmd, shell=False, capture_output=True, timeout=30).returncode == 0 and out.exists():
                     count += 1
                     print(f"  ✓ {out.name}")
                 start += t
@@ -124,7 +124,7 @@ class SilenceCutter:
             '-f', 'null', '-'
         ]
         # silencedetect 信息输出在 stderr，需要 info 级别
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(cmd, shell=False, capture_output=True, text=True, timeout=30)
         starts = []
         ends = []
         for line in result.stderr.splitlines():
@@ -211,7 +211,7 @@ class SilenceCutter:
 
         print(f"静音裁剪: {file_path.name} (阈值 {threshold_db}dB，最短 {min_duration}秒)")
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, shell=False, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 old_dur = info.get('duration', 0)
                 new_info = MediaInfo.get_info(output_path)
@@ -310,7 +310,7 @@ class SegmentRepeater:
         print(f"片段重复: {file_path.name} [{start:.2f}s→{end:.2f}s] x {times} + 尾段")
         print(f"  输出预计时长: {total_audio_duration:.2f}s (原 {duration:.2f}s)")
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, shell=False, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and output_path.exists():
                 print(f"✓ 完成: {output_path.name}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
@@ -577,7 +577,7 @@ class AudioFingerprinter:
                '-fp_format', 'raw',
                '-']
         try:
-            result = subprocess.run(cmd, capture_output=True, timeout=30)
+            result = subprocess.run(cmd, shell=False, capture_output=True, timeout=30)
             if result.returncode == 0 and result.stdout:
                 return result.stdout
         except Exception:
