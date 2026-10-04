@@ -100,7 +100,7 @@ def play_playlist(playlist: Playlist, config: Config, loop: str = 'none', explic
         should_stop = False
         should_next = False
         
-        def signal_handler(sig, frame):
+        def signal_handler(sig, frame, player=player):
             nonlocal should_stop
             should_stop = True
             player.stop()
@@ -1314,7 +1314,7 @@ def main():
             player = VideoPlayer(first_path, config)
             
             # 设置信号处理
-            def signal_handler(sig, frame):
+            def signal_handler(sig, frame, player=player):
                 print("\n退出播放")
                 player.stop()
                 sys.exit(0)
@@ -1342,7 +1342,7 @@ def main():
                     print("使用 'mp --eq-list' 查看可用预设")
 
             # 设置信号处理
-            def signal_handler(sig, frame):
+            def signal_handler(sig, frame, player=player):
                 print("\n退出播放")
                 player.stop()
                 sys.exit(0)

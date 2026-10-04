@@ -469,7 +469,7 @@ class DuplicateFinder:
             for p in paths:
                 try:
                     h = DuplicateFinder._file_hash(p)
-                except Exception:
+                except Exception:  # noqa: S112 - file hash failure is non-fatal for duplicate scan
                     continue
                 hash_map.setdefault(h, []).append(p)
 
