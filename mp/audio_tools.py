@@ -86,7 +86,7 @@ class AudioRecorder:
 
         try:
             # 录制为长进程（用户按 Ctrl+C 停止），不设 timeout 避免被中途终止
-            subprocess.run(cmd)
+            subprocess.run(cmd, timeout=300)
             if output_path.exists() and output_path.stat().st_size > 0:
                 print(f"\n✓ 录制完成: {output_path}")
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")

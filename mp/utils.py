@@ -176,7 +176,7 @@ def check_and_install_dependencies():
         cmd = [sys.executable, '-m', 'pip', 'install'] + pip_args + missing
         
         try:
-            subprocess.check_call(cmd)
+            subprocess.check_call(cmd, timeout=300)
             print("依赖安装完成！")
         except subprocess.CalledProcessError:
             # 不立即退出，让不需要 pygame 的命令仍能使用
