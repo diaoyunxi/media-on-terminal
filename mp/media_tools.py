@@ -68,6 +68,11 @@ class MediaSplitter:
             and 1 <= int(spec) <= 100
         )
 
+        # 显式检查段数为 0 或负数的情况，提供清晰的错误信息
+        if ':' not in spec and spec.isdigit() and int(spec) == 0:
+            print(f"错误: 段数必须至少为 1，当前为 0")
+            return 0
+
         count = 0
         if is_segment_count:
             num = int(spec)
