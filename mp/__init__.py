@@ -65,6 +65,9 @@ from mp.help_text import show_help
 
 __all__ = [
     "__version__",
+    "CONFIG_DIR", "CONFIG_FILE", "PLAYLIST_DIR",
+    "FAVORITES_FILE", "HISTORY_FILE", "RADIO_FILE",
+    "UPDATE_CACHE_FILE", "GITHUB_REPO",
     "Config", "ConfigBackup", "MediaInfo",
     "BookmarkManager", "FavoritesManager", "HistoryManager",
     "SleepTimer", "ABLoop", "RadioManager", "QueueManager", "StatisticsManager",
