@@ -106,7 +106,7 @@ def download_song_interactive(config: 'Config', keyword: str, output_dir: str = 
         try:
             # 使用 ffplay 播放，-nodisp 隐藏视频窗口，-autoexit 自动退出
             proc = subprocess.Popen(
-                ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", url],
+                ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", url],  # noqa: S607 — user-installed media tool
                 stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,

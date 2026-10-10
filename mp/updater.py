@@ -550,7 +550,7 @@ def check_for_update(force: bool = False):
             try:
                 print(f"  尝试 git pull ...")
                 result = subprocess.run(
-                    ['git', 'pull'],
+                    [shutil.which('git') or 'git', 'pull'],
                     cwd=install_root,
                     capture_output=True,
                     text=True,
