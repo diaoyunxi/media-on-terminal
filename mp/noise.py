@@ -119,20 +119,27 @@ class NoiseGenerator:
         self.is_playing = True
 
     def stop(self):
-        """停止播放"""
+        """停止播放并清理所有子进程，防止僵尸进程"""
         self.is_playing = False
+        # 先终止 ffplay（消费端），使 ffmpeg 管道收到 SIGPIPE 自动退出
         if self.process and self.process.poll() is None:
             self.process.terminate()
             try:
-                self.process.wait(timeout=1)
+                self.process.wait(timeout=2)
             except Exception:
                 self.process.kill()
+                self.process.wait(timeout=2)
+        self.process = None
+        # 再终止 ffmpeg（生产端），防止管道未断开时 ffmpeg 挂起
         if hasattr(self, '_noise_proc') and self._noise_proc and self._noise_proc.poll() is None:
             self._noise_proc.terminate()
             try:
-                self._noise_proc.wait(timeout=1)
+                self._noise_proc.wait(timeout=2)
             except Exception:
                 self._noise_proc.kill()
+                self._noise_proc.wait(timeout=2)
+        if hasattr(self, '_noise_proc'):
+            self._noise_proc = None
 
     def set_type(self, noise_type: str):
         """设置噪声类型"""
