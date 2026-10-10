@@ -29,6 +29,8 @@ from typing import List, Optional, Dict, Any, Tuple
 from mp.audio_tools import AudioExtractor
 from mp.effects import AudioConverter
 from mp.media_info import MediaInfo
+from mp.audio_tools import AudioExtractor
+from mp.effects import AudioConverter
 
 
 class MetadataEditor:
