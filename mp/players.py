@@ -83,8 +83,8 @@ class AudioPlayer:
         self.process = None
         
         # 新增功能
-        self.volume = config.get('volume', 100)
-        self.playback_speed = config.get('playback_speed', 1.0)
+        self.volume = max(0, min(100, config.get('volume', 100)))
+        self.playback_speed = max(0.25, min(4.0, config.get('playback_speed', 1.0)))
         self.loop_mode = config.get('loop_mode', 'none')  # none, single, all
         
         # 歌词和可视化器
@@ -996,8 +996,8 @@ class VideoPlayer:
         self.height = 0
         
         # 新增功能
-        self.volume = config.get('volume', 100)
-        self.playback_speed = config.get('playback_speed', 1.0)
+        self.volume = max(0, min(100, config.get('volume', 100)))
+        self.playback_speed = max(0.25, min(4.0, config.get('playback_speed', 1.0)))
         self.loop_mode = config.get('loop_mode', 'none')
         
         # 获取视频信息
