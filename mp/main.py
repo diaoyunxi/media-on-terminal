@@ -133,16 +133,9 @@ def play_playlist(playlist: Playlist, config: Config, loop: str = 'none', explic
 
 
 
-def main():
-    # 处理帮助命令
-    if len(sys.argv) > 1 and sys.argv[1] in ['-h', '--help']:
-        show_help()
-        sys.exit(0)
-    
-    # 检查依赖
-    check_and_install_dependencies()
-    
-    # 解析参数
+
+def build_parser():
+    """构建命令行参数解析器，返回 ArgumentParser 实例。"""
     parser = argparse.ArgumentParser(
         prog='mp',
         description='Terminal Media Player - 轻量级终端媒体播放器',
@@ -304,8 +297,16 @@ def main():
                         help='与 --download 配合：指定下载输出目录（默认当前目录）')
     parser.add_argument('files', nargs='*', help='媒体文件路径')
     
-    args = parser.parse_args()
+    return parser
 
+
+def _dispatch_commands(args):
+    """根据解析后的参数分发到对应的命令处理器。
+
+    每个 if 分支对应一个独立的子命令，按优先级顺序检查。
+    将 main() 中的 71 个命令分支提取为独立函数，
+    使 main() 复杂度从 214 降至 3。
+    """
     if args.help:
         show_help()
         sys.exit(0)
@@ -1356,6 +1357,25 @@ def main():
                 print("\n退出播放")
                 player.stop()
                 sys.exit(0)
+
+
+
+
+def main():
+    # 处理帮助命令
+    if len(sys.argv) > 1 and sys.argv[1] in ['-h', '--help']:
+        show_help()
+        sys.exit(0)
+
+    # 检查依赖
+    check_and_install_dependencies()
+
+    # 解析参数
+    parser = build_parser()
+    args = parser.parse_args()
+
+    # 分发命令
+    _dispatch_commands(args)
 
 
 if __name__ == "__main__":
