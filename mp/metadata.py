@@ -392,6 +392,7 @@ class BPMDetector:
                 return None
 
             # 去除直流分量
+            assert len(energy) > 0, 'energy list must not be empty'
             avg = sum(energy) / len(energy)
             energy = [e - avg for e in energy]
 
