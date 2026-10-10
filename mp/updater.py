@@ -232,7 +232,9 @@ def _safe_replace_py(content, target_path):
         return True
     finally:
         try:
-            os.unlink(tmp_path)
+            if os.path.exists(tmp_path):
+
+                os.unlink(tmp_path)
         except OSError:
             pass
 
@@ -513,7 +515,9 @@ def check_for_update(force: bool = False):
                             updated = True
                     finally:
                         try:
-                            os.unlink(tmp_path)
+                            if os.path.exists(tmp_path):
+
+                                os.unlink(tmp_path)
                         except OSError:
                             pass
                 except Exception as e:
@@ -539,7 +543,9 @@ def check_for_update(force: bool = False):
                         updated = True
                 finally:
                     try:
-                        os.unlink(tmp_path)
+                        if os.path.exists(tmp_path):
+
+                            os.unlink(tmp_path)
                     except OSError:
                         pass
             except Exception as e:
