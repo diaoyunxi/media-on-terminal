@@ -26,6 +26,8 @@ import urllib.parse
 import unicodedata
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
+from mp.audio_tools import AudioExtractor
+from mp.effects import AudioConverter
 from mp.media_info import MediaInfo
 
 
