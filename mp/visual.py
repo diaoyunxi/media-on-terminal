@@ -85,7 +85,7 @@ class AudioVisualizer:
             
             self.fft_data = self.smoothing.copy()
             
-        except Exception:
+        except (OSError, IOError):
             pass
     
     def render(self) -> str:
@@ -152,7 +152,7 @@ class SpectrogramGenerator:
                 return True
             print(f"✗ 生成失败: {result.stderr.strip()}")
             return False
-        except Exception as e:
+        except (OSError, IOError, UnicodeDecodeError) as e:
             print(f"✗ 错误: {e}")
             return False
 
@@ -198,7 +198,7 @@ class WaveformGenerator:
                 return True
             print(f"✗ 生成失败: {result.stderr.strip()}")
             return False
-        except Exception as e:
+        except (OSError, IOError, UnicodeDecodeError) as e:
             print(f"✗ 错误: {e}")
             return False
 
@@ -231,7 +231,7 @@ class CoverExtractor:
                         return stream.get('index')
                     if nb_frames == '1':
                         return stream.get('index')
-        except Exception:
+        except (OSError, IOError):
             pass
         return None
 
@@ -268,7 +268,7 @@ class CoverExtractor:
                 return True
             print(f"✗ 提取失败: {result.stderr.strip()}")
             return False
-        except Exception as e:
+        except (OSError, IOError, UnicodeDecodeError) as e:
             print(f"✗ 错误: {e}")
             return False
 
@@ -349,7 +349,7 @@ class AsciiArtExporter:
             print(f"✓ 已导出 {total_frames} 帧到 {output_path.name}")
             print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
             return True
-        except Exception as e:
+        except (OSError, IOError, UnicodeDecodeError) as e:
             print(f"✗ 错误: {e}")
             return False
 
