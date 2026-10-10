@@ -447,6 +447,7 @@ class QueueManager:
     """队列管理 - 管理播放队列，支持添加、删除、重新排序"""
 
     def __init__(self):
+        self.max_queue_size: int = 10000  # 播放队列上限，防止内存无限增长 (CWE-770)
         self.queue: List[Path] = []
         self.history: List[int] = []  # 已播放的索引
         self.current_position = -1
@@ -454,6 +455,9 @@ class QueueManager:
     def add(self, file_path: Path):
         """添加文件到队列"""
         if file_path.exists() and file_path not in self.queue:
+            if len(self.queue) >= self.max_queue_size:
+                logger.warning("播放队列已达上限 (%d)，拒绝添加: %s", self.max_queue_size, file_path)
+                return False
             self.queue.append(file_path)
             return True
         return False
