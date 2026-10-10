@@ -64,6 +64,10 @@ def download_song_interactive(config: 'Config', keyword: str, output_dir: str = 
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             })
             with urllib.request.urlopen(req, timeout=timeout) as resp:
+                # 校验 HTTP 状态码，防止错误页面写入文件
+                if resp.status != 200:
+                    print(f"  下载失败: HTTP {resp.status}")
+                    return False
                 total = int(resp.headers.get("Content-Length", 0))
                 written = 0
                 with open(save_path, "wb") as f:
