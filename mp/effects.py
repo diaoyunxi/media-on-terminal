@@ -1,34 +1,35 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """音频效果器"""
 
-import sys
 import os
+import sys
+
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-import re
-import signal
-import platform
-import subprocess
-import shutil
 import argparse
-import time
-import threading
-import random
-import json
-import hashlib
-import struct
-import zipfile
-import tempfile
 import base64
-import urllib.request
+import hashlib
+import json
+import platform
+import random
+import re
+import shutil
+import signal
+import struct
+import subprocess
+import tempfile
+import threading
+import time
+import unicodedata
 import urllib.error
 import urllib.parse
-import unicodedata
+import urllib.request
+import zipfile
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from mp.config import Config
 from mp.media_info import MediaInfo
+
 
 class AudioConverter:
     """音频转换器 - 在不同格式间转换音频文件"""

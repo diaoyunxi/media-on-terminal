@@ -1,41 +1,51 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """音频/视频播放器"""
 
-import sys
 import os
+import sys
+
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-import re
-import signal
-import platform
-import subprocess
-import shutil
 import argparse
-import time
-import threading
-import random
-import json
-import hashlib
-import struct
-import zipfile
-import tempfile
 import base64
-import urllib.request
+import hashlib
+import json
+import platform
+import random
+import re
+import shutil
+import signal
+import struct
+import subprocess
+import tempfile
+import threading
+import time
+import unicodedata
 import urllib.error
 import urllib.parse
-import unicodedata
+import urllib.request
+import zipfile
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from mp.config import Config
-from mp.media_info import MediaInfo
-from mp.managers import BookmarkManager, FavoritesManager, HistoryManager, SleepTimer, ABLoop, RadioManager, QueueManager, StatisticsManager
-from mp.effects import Equalizer, CrossfadeManager, PitchControl, AudioConverter
+from mp.effects import AudioConverter, CrossfadeManager, Equalizer, PitchControl
 from mp.lyrics import LyricsDisplay
-from mp.visual import AudioVisualizer
+from mp.managers import (
+    ABLoop,
+    BookmarkManager,
+    FavoritesManager,
+    HistoryManager,
+    QueueManager,
+    RadioManager,
+    SleepTimer,
+    StatisticsManager,
+)
+from mp.media_info import MediaInfo
 from mp.metadata import MetadataEditor
 from mp.playlist import Playlist
 from mp.utils import _display_width, _truncate_to_width
+from mp.visual import AudioVisualizer
+
 
 class AudioPlayer:
     """音频播放器类"""

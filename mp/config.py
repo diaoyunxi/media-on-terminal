@@ -1,32 +1,33 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """配置管理"""
 
-import sys
 import os
+import sys
+
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-import re
-import signal
-import platform
-import subprocess
-import shutil
 import argparse
-import time
-import threading
-import random
-import json
-import hashlib
-import struct
-import zipfile
-import tempfile
 import base64
-import urllib.request
+import hashlib
+import json
+import logging
+import platform
+import random
+import re
+import shutil
+import signal
+import struct
+import subprocess
+import tempfile
+import threading
+import time
+import unicodedata
 import urllib.error
 import urllib.parse
-import unicodedata
+import urllib.request
+import zipfile
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
-import logging
+from typing import Any, Dict, List, Optional, Tuple
+
 from mp.constants import CONFIG_DIR, CONFIG_FILE
 
 logger = logging.getLogger(__name__)

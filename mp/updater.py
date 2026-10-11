@@ -1,34 +1,35 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """GitHub 自动更新"""
 
-import sys
 import os
+import sys
+
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-import re
-import signal
-import platform
-import subprocess
-import shutil
 import argparse
-import time
-import threading
-import random
-import json
-import hashlib
-import struct
-import zipfile
-import tempfile
 import base64
-import urllib.request
+import hashlib
+import json
+import platform
+import random
+import re
+import shutil
+import signal
+import struct
+import subprocess
+import tempfile
+import threading
+import time
+import unicodedata
 import urllib.error
 import urllib.parse
-import unicodedata
+import urllib.request
+import zipfile
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from mp import __version__
-from mp.constants import CONFIG_DIR, UPDATE_CACHE_FILE, GITHUB_REPO, _GITHUB_MIRROR
+from mp.constants import _GITHUB_MIRROR, CONFIG_DIR, GITHUB_REPO, UPDATE_CACHE_FILE
+
 
 def _github_url(url: str) -> str:
     """通过 GITHUB_MIRROR 环境变量转发 GitHub 相关 URL
@@ -56,8 +57,8 @@ def _fetch_latest_version_github():
     - 缓存有效期内直接返回缓存结果，不再请求 API
     - API 请求失败时（速率限制/网络错误）使用过期缓存兜底，避免完全无返回
     """
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     # --- 缓存读取 ---
     cache = None
@@ -431,8 +432,8 @@ def check_for_update(force: bool = False):
     :param force: 为 True 时即使已是最新版也显示版本信息（用于 --update 模式）
     :return: True 表示已更新并退出程序；False 表示未更新或检查失败
     """
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     try:
         latest, release_url, assets = _fetch_latest_version_github()
