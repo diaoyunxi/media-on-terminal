@@ -148,20 +148,18 @@ def download_song_interactive(config: 'Config', keyword: str, output_dir: str = 
                             proc.kill()
                         break
                     elif ch == ' ':
-                        try:
+                        import contextlib
+                        with contextlib.suppress(OSError, IOError):
                             proc.stdin.write(b' ')
                             proc.stdin.flush()
-                        except (OSError, IOError):
-                            pass
                     elif ch == '\x1b':
                         # 可能是 Escape 键或方向键开头
                         # 尝试读取剩余序列（50ms 内）
                         seq = ""
-                        try:
+                        import contextlib
+                        with contextlib.suppress(OSError, IOError):
                             while select.select([sys.stdin], [], [], 0.05)[0]:
                                 seq += sys.stdin.read(1)
-                        except (OSError, IOError):
-                            pass
                         if seq:
                             # 方向键序列，转发给 ffplay
                             try:
@@ -180,11 +178,10 @@ def download_song_interactive(config: 'Config', keyword: str, output_dir: str = 
                             break
                     else:
                         # 其他键，转发给 ffplay
-                        try:
+                        import contextlib
+                        with contextlib.suppress(OSError, IOError):
                             proc.stdin.write(ch.encode())
                             proc.stdin.flush()
-                        except (OSError, IOError):
-                            pass
             if proc.poll() is not None and not choice:
                 # 播放完毕，等待用户选择
                 termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
