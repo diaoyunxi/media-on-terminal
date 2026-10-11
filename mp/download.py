@@ -1,34 +1,35 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """歌曲下载"""
 
-import sys
 import os
+import sys
+
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-import re
-import signal
-import platform
-import subprocess
-import shutil
 import argparse
-import time
-import threading
-import random
-import json
-import hashlib
-import struct
-import zipfile
-import tempfile
 import base64
-import urllib.request
+import hashlib
+import json
+import platform
+import random
+import re
+import shutil
+import signal
+import struct
+import subprocess
+import tempfile
+import threading
+import time
+import unicodedata
 import urllib.error
 import urllib.parse
-import unicodedata
+import urllib.request
+import zipfile
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
-from mp.lyrics import OnlineLyricsFetcher
 from mp.config import Config
+from mp.lyrics import OnlineLyricsFetcher
+
 
 def _validate_url_scheme(url: str, allowed: tuple = ("http://", "https://")) -> str:
     """校验 URL 协议白名单，防止 SSRF (CWE-918)"""
@@ -128,8 +129,8 @@ def download_song_interactive(config: 'Config', keyword: str, output_dir: str = 
             return choice
 
         # 非阻塞读取用户输入
-        import tty
         import termios
+        import tty
 
         fd = sys.stdin.fileno()
         old_settings = termios.tcgetattr(fd)

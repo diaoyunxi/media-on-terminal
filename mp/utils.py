@@ -1,31 +1,31 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """工具函数与依赖检查"""
 
-import sys
 import os
+import sys
+
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-import re
-import signal
-import platform
-import subprocess
-import shutil
 import argparse
-import time
-import threading
-import random
-import json
-import hashlib
-import struct
-import zipfile
-import tempfile
 import base64
-import urllib.request
+import hashlib
+import json
+import platform
+import random
+import re
+import shutil
+import signal
+import struct
+import subprocess
+import tempfile
+import threading
+import time
+import unicodedata
 import urllib.error
 import urllib.parse
-import unicodedata
+import urllib.request
+import zipfile
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 def _display_width(s: str) -> int:
@@ -104,12 +104,14 @@ def _truncate_to_width(s: str, max_width: int) -> str:
 
 # 路径常量从 constants.py 导入（向后兼容）
 from mp.constants import (
-    CONFIG_DIR, CONFIG_FILE, PLAYLIST_DIR,
-    FAVORITES_FILE, HISTORY_FILE, RADIO_FILE,
+    CONFIG_DIR,
+    CONFIG_FILE,
+    FAVORITES_FILE,
+    HISTORY_FILE,
+    PLAYLIST_DIR,
+    RADIO_FILE,
     UPDATE_CACHE_FILE,
 )
-
-
 
 
 def get_pip_install_args():
