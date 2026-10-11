@@ -74,14 +74,14 @@ class AudioRecorder:
         cmd.append(str(output_path))
 
         print(f"\n{'='*60}")
-        print(f"  音频录制")
+        print("  音频录制")
         print(f"{'='*60}")
         print(f"  输出文件: {output_path}")
         if duration:
             print(f"  录制时长: {MediaInfo.format_duration(duration)}")
         else:
-            print(f"  录制时长: 直至按 Ctrl+C 停止")
-        print(f"  按 Ctrl+C 停止录制")
+            print("  录制时长: 直至按 Ctrl+C 停止")
+        print("  按 Ctrl+C 停止录制")
         print(f"{'='*60}\n")
 
         try:
@@ -95,7 +95,7 @@ class AudioRecorder:
                 print("\n✗ 录制失败：输出文件为空（请检查麦克风设备）")
                 return False
         except KeyboardInterrupt:
-            print(f"\n停止录制")
+            print("\n停止录制")
             if output_path.exists():
                 print(f"✓ 已保存: {output_path}")
                 return True
@@ -111,7 +111,7 @@ class AudioRecorder:
     def run_interactive(output_path: Optional[Path] = None):
         """交互式录制"""
         if output_path is None:
-            print(f"\n音频录制器")
+            print("\n音频录制器")
             print(f"{'='*60}")
             name = input("输出文件名 (默认 recording.wav): ").strip()
             if not name:
@@ -236,7 +236,7 @@ class AudioTrimmer:
         info = MediaInfo.get_info(file_path)
         duration = info.get('duration', 0) if isinstance(info, dict) else 0
         if duration <= 0:
-            print(f"✗ 无法读取文件时长")
+            print("✗ 无法读取文件时长")
             return False
 
         if start < 0 or start >= duration:
@@ -276,7 +276,7 @@ class AudioTrimmer:
                 print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
                 return True
             # 流复制失败时回退到重编码
-            print(f"  流复制失败，尝试重编码...")
+            print("  流复制失败，尝试重编码...")
             cmd = [
                 'ffmpeg', '-y', '-loglevel', 'warning',
                 '-ss', f'{start:.3f}',
@@ -677,7 +677,7 @@ class RingtoneMaker:
         info = MediaInfo.get_info(file_path)
         total = info.get('duration', 0) if isinstance(info, dict) else 0
         if total <= 0:
-            print(f"✗ 无法读取文件时长")
+            print("✗ 无法读取文件时长")
             return False
 
         if duration is None:
