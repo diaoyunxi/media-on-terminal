@@ -17,6 +17,7 @@ import random
 import json
 import hashlib
 import struct
+import logging
 import zipfile
 import tempfile
 import base64
@@ -27,12 +28,10 @@ import unicodedata
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 
-import logging
-
 from mp.config import Config
+from mp.constants import CONFIG_DIR, FAVORITES_FILE, HISTORY_FILE, RADIO_FILE
 
 logger = logging.getLogger(__name__)
-from mp.constants import CONFIG_DIR, FAVORITES_FILE, HISTORY_FILE, RADIO_FILE
 
 class BookmarkManager:
     """书签管理 - 保存和恢复播放位置"""
