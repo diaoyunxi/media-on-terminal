@@ -1,31 +1,14 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """工具函数与依赖检查"""
 
-import sys
 import os
+import sys
+
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-import re
-import signal
 import platform
-import subprocess
 import shutil
-import argparse
-import time
-import threading
-import random
-import json
-import hashlib
-import struct
-import zipfile
-import tempfile
-import base64
-import urllib.request
-import urllib.error
-import urllib.parse
+import subprocess
 import unicodedata
-from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
 
 
 def _display_width(s: str) -> int:
@@ -103,11 +86,6 @@ def _truncate_to_width(s: str, max_width: int) -> str:
     return ''.join(result)
 
 # 路径常量从 constants.py 导入（向后兼容）
-from mp.constants import (
-    CONFIG_DIR, CONFIG_FILE, PLAYLIST_DIR,
-    FAVORITES_FILE, HISTORY_FILE, RADIO_FILE,
-    UPDATE_CACHE_FILE,
-)
 
 
 
@@ -155,26 +133,23 @@ def install_system_dependencies():
 
 def check_and_install_dependencies():
     """检查并安装Python依赖"""
-    if sys.version_info < (3, 8):
-        print("错误: 需要Python 3.8或更高版本")
-        sys.exit(1)
-    
+
     required_packages = ['pygame']
     missing = []
-    
+
     for package in required_packages:
         try:
             __import__(package)
         except ImportError:
             missing.append(package)
-    
+
     if missing:
         print(f"正在安装缺失的依赖: {', '.join(missing)}")
         install_system_dependencies()
-        
+
         pip_args = get_pip_install_args()
-        cmd = [sys.executable, '-m', 'pip', 'install'] + pip_args + missing
-        
+        cmd = [sys.executable, '-m', 'pip', 'install', *pip_args, *missing]
+
         try:
             subprocess.check_call(cmd, timeout=300)
             print("依赖安装完成！")
@@ -199,7 +174,7 @@ def check_ffmpeg():
     if not shutil.which('ffmpeg'):
         system = platform.system()
         print("未检测到ffmpeg，正在尝试自动安装...")
-        
+
         try:
             if system == "Darwin":
                 if shutil.which('brew'):

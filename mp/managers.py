@@ -1,53 +1,35 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """播放管理器集合"""
 
-import sys
 import os
-os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-import re
-import signal
-import platform
-import subprocess
-import shutil
-import argparse
-import time
-import threading
-import random
-import json
-import hashlib
-import struct
-import zipfile
-import tempfile
-import base64
-import urllib.request
-import urllib.error
-import urllib.parse
-import unicodedata
-from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
 
-from mp.config import Config
+os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
+import json
+import time
+from pathlib import Path
+from typing import Any
+
 from mp.constants import CONFIG_DIR, FAVORITES_FILE, HISTORY_FILE, RADIO_FILE
+
 
 class BookmarkManager:
     """书签管理 - 保存和恢复播放位置"""
-    
+
     BOOKMARK_FILE = CONFIG_DIR / 'bookmarks.json'
-    
+
     def __init__(self):
-        self.bookmarks: Dict[str, float] = {}
+        self.bookmarks: dict[str, float] = {}
         self.load()
-    
+
     def load(self) -> None:
         """加载书签"""
         try:
             if self.BOOKMARK_FILE.exists():
-                with open(self.BOOKMARK_FILE, 'r', encoding='utf-8') as f:
+                with open(self.BOOKMARK_FILE, encoding='utf-8') as f:
                     self.bookmarks = json.load(f)
         except Exception:
             self.bookmarks = {}
-    
+
     def save(self) -> None:
         """保存书签"""
         try:
@@ -56,26 +38,26 @@ class BookmarkManager:
                 json.dump(self.bookmarks, f, indent=2)
         except Exception:
             pass
-    
+
     def get_position(self, file_path: Path) -> float:
         """获取文件的书签位置（秒）"""
         key = str(file_path.resolve())
         return self.bookmarks.get(key, 0.0)
-    
+
     def set_position(self, file_path: Path, position: float) -> None:
         """设置文件的书签位置（秒）"""
         key = str(file_path.resolve())
         if position > 5:  # 只保存超过5秒的位置
             self.bookmarks[key] = position
             self.save()
-    
+
     def clear_position(self, file_path: Path) -> None:
         """清除文件的书签"""
         key = str(file_path.resolve())
         if key in self.bookmarks:
             del self.bookmarks[key]
             self.save()
-    
+
     def has_position(self, file_path: Path) -> bool:
         """检查文件是否有书签"""
         key = str(file_path.resolve())
@@ -86,20 +68,20 @@ class BookmarkManager:
 
 class FavoritesManager:
     """收藏管理 - 管理喜欢的歌曲"""
-    
+
     def __init__(self):
-        self.favorites: List[str] = []
+        self.favorites: list[str] = []
         self.load()
-    
+
     def load(self) -> None:
         """加载收藏列表"""
         try:
             if FAVORITES_FILE.exists():
-                with open(FAVORITES_FILE, 'r', encoding='utf-8') as f:
+                with open(FAVORITES_FILE, encoding='utf-8') as f:
                     self.favorites = json.load(f)
         except Exception:
             self.favorites = []
-    
+
     def save(self) -> None:
         """保存收藏列表"""
         try:
@@ -108,7 +90,7 @@ class FavoritesManager:
                 json.dump(self.favorites, f, indent=2)
         except Exception:
             pass
-    
+
     def add(self, file_path: Path) -> None:
         """添加歌曲到收藏"""
         key = str(file_path.resolve())
@@ -117,7 +99,7 @@ class FavoritesManager:
             self.save()
             return True
         return False
-    
+
     def remove(self, file_path: Path) -> None:
         """从收藏中移除歌曲"""
         key = str(file_path.resolve())
@@ -126,12 +108,12 @@ class FavoritesManager:
             self.save()
             return True
         return False
-    
+
     def is_favorite(self, file_path: Path) -> bool:
         """检查歌曲是否在收藏中"""
         key = str(file_path.resolve())
         return key in self.favorites
-    
+
     def toggle(self, file_path: Path) -> bool:
         """切换收藏状态，返回新的收藏状态"""
         if self.is_favorite(file_path):
@@ -140,8 +122,8 @@ class FavoritesManager:
         else:
             self.add(file_path)
             return True
-    
-    def get_all(self) -> List[Path]:
+
+    def get_all(self) -> list[Path]:
         """获取所有收藏的歌曲路径"""
         result = []
         for path_str in self.favorites:
@@ -149,24 +131,24 @@ class FavoritesManager:
             if path.exists():
                 result.append(path)
         return result
-    
+
     def display(self) -> None:
         """显示收藏列表"""
         if not self.favorites:
             print("\n收藏列表为空")
             return
-        
+
         print(f"\n{'='*60}")
         print(f"  我的收藏 ({len(self.favorites)} 首)")
         print(f"{'='*60}")
-        
+
         for i, path_str in enumerate(self.favorites):
             path = Path(path_str)
             if path.exists():
                 print(f"  {i+1:3d}. {path.name}")
             else:
                 print(f"  {i+1:3d}. {path.name} (文件不存在)")
-        
+
         print(f"{'='*60}\n")
 
 
@@ -174,22 +156,22 @@ class FavoritesManager:
 
 class HistoryManager:
     """历史记录管理 - 记录播放历史"""
-    
+
     MAX_HISTORY = 100  # 最多保存100条记录
-    
+
     def __init__(self):
-        self.history: List[Dict[str, Any]] = []
+        self.history: list[dict[str, Any]] = []
         self.load()
-    
+
     def load(self) -> None:
         """加载历史记录"""
         try:
             if HISTORY_FILE.exists():
-                with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
+                with open(HISTORY_FILE, encoding='utf-8') as f:
                     self.history = json.load(f)
         except Exception:
             self.history = []
-    
+
     def save(self) -> None:
         """保存历史记录"""
         try:
@@ -198,7 +180,7 @@ class HistoryManager:
                 json.dump(self.history, f, indent=2)
         except Exception:
             pass
-    
+
     def add(self, file_path: Path, duration_played: float = 0):
         """添加播放记录"""
         record = {
@@ -207,44 +189,44 @@ class HistoryManager:
             'timestamp': time.time(),
             'duration_played': duration_played
         }
-        
+
         # 添加到开头
         self.history.insert(0, record)
-        
+
         # 限制历史记录数量
         if len(self.history) > self.MAX_HISTORY:
             self.history = self.history[:self.MAX_HISTORY]
-        
+
         self.save()
-    
-    def get_recent(self, count: int = 20) -> List[Dict[str, Any]]:
+
+    def get_recent(self, count: int = 20) -> list[dict[str, Any]]:
         """获取最近的播放记录"""
         return self.history[:count]
-    
+
     def display(self, count: int = 20):
         """显示历史记录"""
         recent = self.get_recent(count)
-        
+
         if not recent:
             print("\n播放历史为空")
             return
-        
+
         print(f"\n{'='*60}")
         print(f"  最近播放 (最近 {len(recent)} 首)")
         print(f"{'='*60}")
-        
+
         for i, record in enumerate(recent):
             path = Path(record['path'])
             name = record['name']
             timestamp = time.localtime(record['timestamp'])
             time_str = time.strftime('%Y-%m-%d %H:%M', timestamp)
-            
+
             exists = "✓" if path.exists() else "✗"
             print(f"  {exists} {i+1:3d}. {name}")
             print(f"       播放时间: {time_str}")
-        
+
         print(f"{'='*60}\n")
-    
+
     def clear(self):
         """清空历史记录"""
         self.history = []
@@ -256,13 +238,13 @@ class HistoryManager:
 
 class SleepTimer:
     """定时停止 - 睡眠定时器"""
-    
+
     def __init__(self):
         self.remaining_time = 0  # 剩余时间（秒）
         self.is_active = False
         self.start_time = 0
         self.callback = None
-    
+
     def set(self, minutes: int, callback=None):
         """设置定时器（分钟）"""
         self.remaining_time = minutes * 60
@@ -270,34 +252,34 @@ class SleepTimer:
         self.is_active = True
         self.callback = callback
         return self.remaining_time
-    
+
     def cancel(self):
         """取消定时器"""
         self.is_active = False
         self.remaining_time = 0
         self.callback = None
-    
+
     def get_remaining(self) -> int:
         """获取剩余时间（秒）"""
         if not self.is_active:
             return 0
-        
+
         elapsed = time.time() - self.start_time
         remaining = max(0, self.remaining_time - elapsed)
-        
+
         # 如果时间到了，触发回调
         if remaining == 0 and self.callback:
             self.is_active = False
             self.callback()
-        
+
         return int(remaining)
-    
+
     def format_remaining(self) -> str:
         """格式化剩余时间显示"""
         remaining = self.get_remaining()
         if remaining == 0:
             return ""
-        
+
         minutes = remaining // 60
         seconds = remaining % 60
         return f"⏰ {minutes:02d}:{seconds:02d}"
@@ -307,55 +289,55 @@ class SleepTimer:
 
 class ABLoop:
     """AB循环 - 区间循环播放"""
-    
+
     def __init__(self):
         self.point_a = 0.0  # A点位置（秒）
         self.point_b = 0.0  # B点位置（秒）
         self.is_active = False
         self.is_setting_a = True  # 正在设置A点还是B点
-    
+
     def set_point_a(self, position: float):
         """设置A点位置"""
         self.point_a = position
         self.is_setting_a = False
-    
+
     def set_point_b(self, position: float):
         """设置B点位置"""
         self.point_b = position
         self.is_active = True
         self.is_setting_a = True
-    
+
     def toggle(self):
         """切换AB循环状态"""
         if self.is_active:
             self.deactivate()
         elif self.point_a > 0 and self.point_b > self.point_a:
             self.is_active = True
-    
+
     def deactivate(self):
         """停用AB循环"""
         self.is_active = False
         self.point_a = 0.0
         self.point_b = 0.0
         self.is_setting_a = True
-    
-    def check_position(self, current_position: float) -> Optional[float]:
+
+    def check_position(self, current_position: float) -> float | None:
         """检查当前位置，如果超出B点则返回A点位置"""
         if not self.is_active:
             return None
-        
+
         if current_position >= self.point_b:
             return self.point_a
-        
+
         return None
-    
+
     def get_status(self) -> str:
         """获取状态字符串"""
         if not self.is_active:
             return ""
-        
+
         return f"🔁 AB: {self._format_time(self.point_a)}-{self._format_time(self.point_b)}"
-    
+
     def _format_time(self, seconds: float) -> str:
         """格式化时间"""
         minutes = int(seconds // 60)
@@ -367,7 +349,7 @@ class ABLoop:
 
 class RadioManager:
     """网络电台管理 - 支持在线流媒体播放"""
-    
+
     # 预设电台列表
     DEFAULT_STATIONS = {
         "经典音乐": "https://stream.rthk.hk/radio/pth",
@@ -375,16 +357,16 @@ class RadioManager:
         "流行音乐": "https://stream.rthk.hk/radio/pop",
         "古典音乐": "https://stream.rthk.hk/radio/classical",
     }
-    
+
     def __init__(self):
-        self.stations: Dict[str, str] = {}
+        self.stations: dict[str, str] = {}
         self.load()
-    
+
     def load(self) -> None:
         """加载电台列表"""
         try:
             if RADIO_FILE.exists():
-                with open(RADIO_FILE, 'r', encoding='utf-8') as f:
+                with open(RADIO_FILE, encoding='utf-8') as f:
                     self.stations = json.load(f)
             else:
                 # 首次使用，加载默认电台
@@ -392,7 +374,7 @@ class RadioManager:
                 self.save()
         except Exception:
             self.stations = self.DEFAULT_STATIONS.copy()
-    
+
     def save(self) -> None:
         """保存电台列表"""
         try:
@@ -401,13 +383,13 @@ class RadioManager:
                 json.dump(self.stations, f, indent=2, ensure_ascii=False)
         except Exception:
             pass
-    
+
     def add_station(self, name: str, url: str):
         """添加电台"""
         self.stations[name] = url
         self.save()
         print(f"电台已添加: {name}")
-    
+
     def remove_station(self, name: str):
         """删除电台"""
         if name in self.stations:
@@ -417,26 +399,26 @@ class RadioManager:
             return True
         print(f"电台不存在: {name}")
         return False
-    
-    def get_station_url(self, name: str) -> Optional[str]:
+
+    def get_station_url(self, name: str) -> str | None:
         """获取电台URL"""
         return self.stations.get(name)
-    
+
     def list_stations(self):
         """显示电台列表"""
         if not self.stations:
             print("\n电台列表为空")
             print("使用 'mp --radio-add <名称> <URL>' 添加电台")
             return
-        
+
         print(f"\n{'='*60}")
         print(f"  网络电台 ({len(self.stations)} 个)")
         print(f"{'='*60}")
-        
+
         for i, (name, url) in enumerate(self.stations.items()):
             print(f"  {i+1:3d}. {name}")
             print(f"       {url}")
-        
+
         print(f"{'='*60}\n")
         print("使用 'mp --radio <名称>' 播放电台")
 
@@ -448,8 +430,8 @@ class QueueManager:
 
     def __init__(self):
         self.max_queue_size: int = 10000  # 播放队列上限，防止内存无限增长 (CWE-770)
-        self.queue: List[Path] = []
-        self.history: List[int] = []  # 已播放的索引
+        self.queue: list[Path] = []
+        self.history: list[int] = []  # 已播放的索引
         self.current_position = -1
 
     def add(self, file_path: Path) -> None:
@@ -462,7 +444,7 @@ class QueueManager:
             return True
         return False
 
-    def add_multiple(self, files: List[Path]):
+    def add_multiple(self, files: list[Path]):
         """批量添加文件"""
         count = 0
         for f in files:
@@ -494,21 +476,21 @@ class QueueManager:
         self.history.clear()
         self.current_position = -1
 
-    def get_next(self) -> Optional[Path]:
+    def get_next(self) -> Path | None:
         """获取下一首"""
         self.current_position += 1
         if self.current_position < len(self.queue):
             return self.queue[self.current_position]
         return None
 
-    def get_previous(self) -> Optional[Path]:
+    def get_previous(self) -> Path | None:
         """获取上一首"""
         if self.current_position > 0:
             self.current_position -= 1
             return self.queue[self.current_position]
         return None
 
-    def get_current(self) -> Optional[Path]:
+    def get_current(self) -> Path | None:
         """获取当前文件"""
         if 0 <= self.current_position < len(self.queue):
             return self.queue[self.current_position]
@@ -553,7 +535,7 @@ class StatisticsManager:
         """加载统计数据"""
         try:
             if self.STATS_FILE.exists():
-                with open(self.STATS_FILE, 'r', encoding='utf-8') as f:
+                with open(self.STATS_FILE, encoding='utf-8') as f:
                     saved = json.load(f)
                     self.stats.update(saved)
         except Exception:
@@ -604,7 +586,7 @@ class StatisticsManager:
     def display(self) -> None:
         """显示统计信息"""
         print(f"\n{'='*60}")
-        print(f"  播放统计")
+        print("  播放统计")
         print(f"{'='*60}")
 
         # 总体统计
@@ -616,21 +598,21 @@ class StatisticsManager:
 
         # 格式统计
         if self.stats['songs_by_format']:
-            print(f"\n  格式分布:")
+            print("\n  格式分布:")
             sorted_formats = sorted(self.stats['songs_by_format'].items(), key=lambda x: x[1], reverse=True)
             for fmt, count in sorted_formats[:5]:
                 print(f"    {fmt.upper():6s}: {count:3d} 首")
 
         # 最常播放
         if self.stats['most_played']:
-            print(f"\n  最常播放 (Top 5):")
+            print("\n  最常播放 (Top 5):")
             sorted_songs = sorted(self.stats['most_played'].items(), key=lambda x: x[1], reverse=True)
             for i, (path, count) in enumerate(sorted_songs[:5], 1):
                 name = Path(path).name
                 print(f"    {i}. {name} ({count}次)")
 
         # 最近7天
-        print(f"\n  最近7天:")
+        print("\n  最近7天:")
         for i in range(6, -1, -1):
             date = (time.time() - i * 86400)
             date_str = time.strftime('%Y-%m-%d', time.localtime(date))

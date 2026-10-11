@@ -1,32 +1,15 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """配置管理"""
 
-import sys
 import os
+
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-import re
-import signal
-import platform
-import subprocess
-import shutil
-import argparse
-import time
-import threading
-import random
 import json
-import hashlib
-import struct
-import zipfile
-import tempfile
-import base64
-import urllib.request
-import urllib.error
-import urllib.parse
-import unicodedata
-from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
 import logging
+import time
+import zipfile
+from pathlib import Path
+
 from mp.constants import CONFIG_DIR, CONFIG_FILE
 
 logger = logging.getLogger(__name__)
@@ -40,7 +23,7 @@ class Config:
     自动 __repr__、字段默认值管理、frozen（不可变）等优势，
     替代当前基于字典的手动管理方式。
     """
-    
+
     DEFAULT_CONFIG = {
         'volume': 100,  # 音量 0-100
         'playback_speed': 1.0,  # 播放速度
@@ -48,33 +31,33 @@ class Config:
         'shuffle': False,  # 随机播放
         'last_directory': str(Path.home()),  # 上次打开的目录
     }
-    
+
     def __init__(self):
         self.config = self.DEFAULT_CONFIG.copy()
         self.load()
-    
+
     def load(self):
         """加载配置"""
         try:
             if CONFIG_FILE.exists():
-                with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                with open(CONFIG_FILE, encoding='utf-8') as f:
                     saved = json.load(f)
                     self.config.update(saved)
-        except (json.JSONDecodeError, IOError) as e:
+        except (OSError, json.JSONDecodeError) as e:
             logger.warning("配置文件加载失败，将使用默认配置: %s", e)
-    
+
     def save(self):
         """保存配置"""
         try:
             CONFIG_DIR.mkdir(parents=True, exist_ok=True)
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f, indent=2)
-        except (IOError, OSError) as e:
+        except OSError as e:
             logger.warning("配置保存失败: %s", e)
-    
+
     def get(self, key, default=None):
         return self.config.get(key, default)
-    
+
     def set(self, key, value):
         self.config[key] = value
         self.save()
@@ -86,7 +69,7 @@ class ConfigBackup:
     """配置备份 - 备份和恢复 mp 配置（zip）"""
 
     @staticmethod
-    def backup(output_path: Optional[Path] = None) -> bool:
+    def backup(output_path: Path | None = None) -> bool:
         """备份整个 ~/.config/mp 配置目录到 zip"""
         if not CONFIG_DIR.exists():
             print(f"✗ 配置目录不存在: {CONFIG_DIR}")
@@ -137,7 +120,7 @@ class ConfigBackup:
             return False
 
         if input_path.suffix.lower() != '.zip':
-            print(f"✗ 仅支持 .zip 备份文件")
+            print("✗ 仅支持 .zip 备份文件")
             return False
 
         print(f"恢复配置: {input_path} → {CONFIG_DIR}")

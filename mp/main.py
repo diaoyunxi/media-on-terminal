@@ -1,72 +1,83 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """主入口：命令行参数解析与分发"""
 
-import sys
 import os
+import sys
+
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
+import argparse
 import re
 import signal
-import platform
 import subprocess
-import shutil
-import argparse
-import time
-import threading
-import random
-import json
-import hashlib
-import struct
-import zipfile
-import tempfile
-import base64
-import urllib.request
-import urllib.error
-import urllib.parse
-import unicodedata
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
 
 from mp import __version__
-from mp.config import Config
-from mp.media_info import MediaInfo
-from mp.utils import check_and_install_dependencies, check_ffmpeg
-from mp.constants import GITHUB_REPO, _GITHUB_MIRROR
-from mp.playlist import Playlist, PlaylistIO
-from mp.players import AudioPlayer, VideoPlayer
-from mp.managers import (
-    BookmarkManager, FavoritesManager, HistoryManager,
-    StatisticsManager, RadioManager,
-)
-from mp.effects import Equalizer
-from mp.file_browser import FileBrowser
-from mp.noise import NoiseGenerator
-from mp.metadata import MetadataEditor, BatchRenamer, MetadataStripper, BPMDetector, SubtitleExtractor
-from mp.lyrics import LyricsDisplay, OnlineLyricsFetcher
 from mp.audio_tools import (
-    AudioRecorder, AudioExtractor, AudioTrimmer, AudioMerger, AudioReverser,
-    ChannelConverter, SampleRateConverter, AVMuxer, AudioMixMixer, RingtoneMaker,
+    AudioExtractor,
+    AudioMerger,
+    AudioMixMixer,
+    AudioRecorder,
+    AudioReverser,
+    AudioTrimmer,
+    AVMuxer,
+    ChannelConverter,
+    RingtoneMaker,
+    SampleRateConverter,
 )
-from mp.video_tools import (
-    GifConverter, ScreenshotCapture, VideoConcat, VideoScaler,
-    VideoRotator, VideoCropper, FpsConverter, ContactSheet,
-)
-from mp.media_tools import (
-    MediaSplitter, SilenceCutter, SegmentRepeater,
-    MediaHealthChecker, DuplicateFinder, MetadataExporter, AudioFingerprinter,
-)
+from mp.config import Config, ConfigBackup
+from mp.download import download_song_interactive
 from mp.effects import (
-    FadeEffect, ReverbEffect, AudioNormalizer, VolumeGain, VolumeRamp,
-    AudioConverter, CrossfadeManager, PitchControl,
+    AudioConverter,
+    AudioNormalizer,
+    Equalizer,
+    FadeEffect,
+    ReverbEffect,
+    VolumeGain,
+    VolumeRamp,
+)
+from mp.file_browser import FileBrowser
+from mp.help_text import show_help
+from mp.lyrics import LyricsDisplay, OnlineLyricsFetcher
+from mp.managers import (
+    FavoritesManager,
+    HistoryManager,
+    RadioManager,
+    StatisticsManager,
+)
+from mp.media_info import MediaInfo
+from mp.media_library import MediaLibrary
+from mp.media_tools import (
+    AudioFingerprinter,
+    DuplicateFinder,
+    MediaHealthChecker,
+    MediaSplitter,
+    MetadataExporter,
+    SegmentRepeater,
+    SilenceCutter,
+)
+from mp.metadata import BatchRenamer, BPMDetector, MetadataEditor, MetadataStripper, SubtitleExtractor
+from mp.noise import NoiseGenerator
+from mp.players import AudioPlayer, VideoPlayer
+from mp.playlist import Playlist, PlaylistIO
+from mp.updater import check_for_update
+from mp.utils import check_and_install_dependencies
+from mp.video_tools import (
+    ContactSheet,
+    FpsConverter,
+    GifConverter,
+    ScreenshotCapture,
+    VideoConcat,
+    VideoCropper,
+    VideoRotator,
+    VideoScaler,
 )
 from mp.visual import (
-    SpectrogramGenerator, WaveformGenerator, CoverExtractor, AsciiArtExporter,
+    AsciiArtExporter,
+    CoverExtractor,
+    SpectrogramGenerator,
+    WaveformGenerator,
 )
-from mp.media_library import MediaLibrary
-from mp.config import ConfigBackup
-from mp.updater import check_for_update
-from mp.download import download_song_interactive
-from mp.help_text import show_help
+
 
 def play_playlist(playlist: Playlist, config: Config, loop: str = 'none', explicit_loop: bool = False):
     """播放播放列表
@@ -79,14 +90,14 @@ def play_playlist(playlist: Playlist, config: Config, loop: str = 'none', explic
     if not playlist.files:
         print("播放列表为空")
         return
-    
+
     playlist.display()
-    
+
     current_file = playlist.get_current()
     while current_file:
         file_ext = current_file.suffix.lower()
         video_extensions = {'.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v'}
-        
+
         if file_ext in video_extensions:
             player = VideoPlayer(current_file, config)
         else:
@@ -95,26 +106,25 @@ def play_playlist(playlist: Playlist, config: Config, loop: str = 'none', explic
         # 播放中按 [l] 切换的模式已通过 config.set 持久化，列表下一曲会自动继承
         if explicit_loop:
             player.loop_mode = loop
-        
+
         # 设置信号处理
         should_stop = False
-        should_next = False
-        
+
         def signal_handler(sig, frame, player=player):
             nonlocal should_stop
             should_stop = True
             player.stop()
-        
+
         signal.signal(signal.SIGINT, signal_handler)
-        
+
         try:
             player.run()
         except KeyboardInterrupt:
             break
-        
+
         if should_stop:
             break
-        
+
         # 获取下一个文件
         next_file = playlist.next()
         if next_file is None:
@@ -296,7 +306,7 @@ def build_parser():
     parser.add_argument('--download-output', metavar='DIR', dest='download_output',
                         help='与 --download 配合：指定下载输出目录（默认当前目录）')
     parser.add_argument('files', nargs='*', help='媒体文件路径')
-    
+
     return parser
 
 
@@ -323,7 +333,7 @@ def _dispatch_commands(args):
 
     # 加载配置
     config = Config()
-    
+
     # 处理收藏播放
     if args.favorites:
         favorites_manager = FavoritesManager()
@@ -331,73 +341,73 @@ def _dispatch_commands(args):
         if not fav_files:
             print("收藏列表为空")
             sys.exit(0)
-        
+
         print(f"播放收藏列表 ({len(fav_files)} 首)")
         playlist = Playlist()
         for f in fav_files:
             playlist.add_file(f)
-        
+
         if args.shuffle:
             playlist.shuffle()
-        
+
         play_playlist(playlist, config, args.loop, explicit_loop=bool(args.loop))
         sys.exit(0)
-    
+
     # 处理历史记录
     if args.history:
         history_manager = HistoryManager()
         history_manager.display()
         sys.exit(0)
-    
+
     if args.clear_history:
         history_manager = HistoryManager()
         history_manager.clear()
         sys.exit(0)
-    
+
     # 处理统计相关命令
     if args.stats:
         stats_manager = StatisticsManager()
         stats_manager.display()
         sys.exit(0)
-    
+
     if args.clear_stats:
         stats_manager = StatisticsManager()
         stats_manager.clear()
         sys.exit(0)
-    
+
     # 处理均衡器预设列表
     if args.eq_list:
         eq = Equalizer()
         eq.list_presets()
         sys.exit(0)
-    
+
     # 处理电台相关命令
     radio_manager = RadioManager()
-    
+
     if args.radio_list:
         radio_manager.list_stations()
         sys.exit(0)
-    
+
     if args.radio_add:
         name, url = args.radio_add
         radio_manager.add_station(name, url)
         sys.exit(0)
-    
+
     if args.radio_del:
         radio_manager.remove_station(args.radio_del)
         sys.exit(0)
-    
+
     if args.radio:
         url = radio_manager.get_station_url(args.radio)
         if not url:
             print(f"电台不存在: {args.radio}")
             print("使用 'mp --radio-list' 查看可用电台")
             sys.exit(1)
-        
+
         print(f"正在播放电台: {args.radio}")
         print(f"URL: {url}")
         print("按 Ctrl+C 停止播放\n")
-        
+
         # 使用 ffplay 播放流媒体
         cmd = [
             'ffplay',
@@ -408,7 +418,7 @@ def _dispatch_commands(args):
             '-volume', str(config.get('volume', 100)),
             url
         ]
-        
+
         try:
             # 播放为长进程（用户按 Ctrl+C 或 q 停止），不设 timeout 避免被中途终止
             subprocess.run(cmd, timeout=300)
@@ -440,7 +450,7 @@ def _dispatch_commands(args):
         if not selected_files:
             print("未选择任何文件")
             sys.exit(0)
-        
+
         if len(selected_files) == 1:
             args.files = [str(selected_files[0])]
         else:
@@ -1155,7 +1165,7 @@ def _dispatch_commands(args):
                 cand = candidates[idx]
                 lrc = fetcher._fetch_lyric_by_candidate(cand)
                 if not fetcher._has_timeline(lrc):
-                    print(f"该候选无有效歌词（无时间轴或纯音乐占位）")
+                    print("该候选无有效歌词（无时间轴或纯音乐占位）")
                     return False, "no_timeline", 0
                 source = cand[2]
                 src_label = src_name_map.get(source, source)
@@ -1263,10 +1273,10 @@ def _dispatch_commands(args):
     if not args.files:
         # 无文件参数时默认使用当前目录（v2.11.9 引入）
         args.files = ['.']
-    
+
     # 加载配置
     config = Config()
-    
+
     # 应用命令行参数
     if args.volume is not None:
         config.set('volume', max(0, min(100, args.volume)))
@@ -1274,7 +1284,7 @@ def _dispatch_commands(args):
         config.set('playback_speed', max(0.5, min(2.0, args.speed)))
     if args.loop:
         config.set('loop_mode', args.loop)
-    
+
     # 媒体信息模式
     if args.info:
         for file_path in args.files:
@@ -1285,43 +1295,43 @@ def _dispatch_commands(args):
             else:
                 print(f"文件不存在: {file_path}")
         sys.exit(0)
-    
+
     # 检查是否是目录
     paths = [Path(f) for f in args.files]
     first_path = paths[0]
-    
+
     if first_path.is_dir() or args.playlist or len(paths) > 1:
         # 播放列表模式
         playlist = Playlist()
-        
+
         for path in paths:
             if path.is_dir():
                 playlist.add_directory(path, recursive=True)
             elif path.exists():
                 playlist.add_file(path)
-        
+
         if args.shuffle:
             playlist.shuffle()
-        
+
         play_playlist(playlist, config, args.loop, explicit_loop=bool(args.loop))
     else:
         # 单文件模式
         file_ext = first_path.suffix.lower()
         video_extensions = {'.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v'}
-        
+
         # 创建播放器实例
         if file_ext in video_extensions:
             # 视频文件
             player = VideoPlayer(first_path, config)
-            
+
             # 设置信号处理
             def signal_handler(sig, frame, player=player):
                 print("\n退出播放")
                 player.stop()
                 sys.exit(0)
-            
+
             signal.signal(signal.SIGINT, signal_handler)
-            
+
             # 运行视频播放器
             try:
                 player.play()

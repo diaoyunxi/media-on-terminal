@@ -1,64 +1,47 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """可视化与频谱"""
 
-import sys
 import os
+
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-import re
-import signal
-import platform
-import subprocess
-import shutil
-import argparse
-import time
-import threading
-import random
 import json
-import hashlib
-import struct
-import zipfile
-import tempfile
-import base64
-import urllib.request
-import urllib.error
-import urllib.parse
-import unicodedata
+import shutil
+import subprocess
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
+
 from mp.media_info import MediaInfo
 
 
 class AudioVisualizer:
     """音频可视化器 - 在终端显示音频频谱"""
-    
+
     # ASCII 字符从密集到稀疏
     BLOCK_CHARS = ' ▏▎▍▌▋▊▉█'
-    
+
     def __init__(self, width: int = 60, height: int = 10):
         self.width = width
         self.height = height
-        self.fft_data: List[float] = [0.0] * width
-        self.smoothing: List[float] = [0.0] * width
+        self.fft_data: list[float] = [0.0] * width
+        self.smoothing: list[float] = [0.0] * width
         self.smooth_factor = 0.3
-    
+
     def update(self, samples: bytes):
         """更新频谱数据（从PCM样本计算）"""
         try:
             import struct
-            
+
             if len(samples) < 256:
                 return
-            
+
             # 简化频谱计算 - 将字节转换为频谱幅度
             n = len(samples)
             spectrum = [0.0] * self.width
-            
+
             # 将样本分成多个频段
             step = n // (self.width * 4)
             if step < 1:
                 step = 1
-            
+
             for i in range(self.width):
                 start = i * step * 4
                 end = min(start + step * 4, n)
@@ -72,33 +55,33 @@ class AudioVisualizer:
                             sample = struct.unpack('<h', samples[j:j+2])[0] if j + 2 <= len(samples) else 0
                             total += sample * sample
                             count += 1
-                    
+
                     if count > 0:
                         rms = (total / count) ** 0.5
                         # 归一化到0-1
                         normalized = min(1.0, rms / 8000)
                         spectrum[i] = normalized
-            
+
             # 平滑过渡
             for i in range(self.width):
                 self.smoothing[i] = self.smoothing[i] * (1 - self.smooth_factor) + spectrum[i] * self.smooth_factor
-            
+
             self.fft_data = self.smoothing.copy()
-            
-        except (OSError, IOError):
+
+        except OSError:
             pass
-    
+
     def render(self) -> str:
         """渲染可视化条形图"""
         lines = []
-        
+
         for y in range(self.height - 1, -1, -1):
             line = ''
             threshold = y / self.height
-            
+
             for i in range(self.width):
                 value = self.fft_data[i] if i < len(self.fft_data) else 0
-                
+
                 if value >= threshold:
                     # 根据强度选择字符
                     intensity = int((value - threshold) / (1 - threshold + 0.01) * (len(self.BLOCK_CHARS) - 1))
@@ -106,9 +89,9 @@ class AudioVisualizer:
                     line += self.BLOCK_CHARS[intensity]
                 else:
                     line += ' '
-            
+
             lines.append(line)
-        
+
         return '\n'.join(lines)
 
 
@@ -118,8 +101,8 @@ class SpectrogramGenerator:
     """频谱图生成 - 生成音频频谱图图片"""
 
     @staticmethod
-    def generate(file_path: Path, output_path: Optional[Path] = None,
-                 start: float = 0.0, duration: Optional[float] = None,
+    def generate(file_path: Path, output_path: Path | None = None,
+                 start: float = 0.0, duration: float | None = None,
                  size: str = '1024x512') -> bool:
         """生成音频频谱图 PNG"""
         if not file_path.exists():
@@ -152,7 +135,7 @@ class SpectrogramGenerator:
                 return True
             print(f"✗ 生成失败: {result.stderr.strip()}")
             return False
-        except (OSError, IOError, UnicodeDecodeError) as e:
+        except (OSError, UnicodeDecodeError) as e:
             print(f"✗ 错误: {e}")
             return False
 
@@ -163,8 +146,8 @@ class WaveformGenerator:
     """波形图生成 - 生成音频波形图图片"""
 
     @staticmethod
-    def generate(file_path: Path, output_path: Optional[Path] = None,
-                 start: float = 0.0, duration: Optional[float] = None,
+    def generate(file_path: Path, output_path: Path | None = None,
+                 start: float = 0.0, duration: float | None = None,
                  size: str = '1280x240') -> bool:
         """生成音频波形图 PNG"""
         if not file_path.exists():
@@ -198,7 +181,7 @@ class WaveformGenerator:
                 return True
             print(f"✗ 生成失败: {result.stderr.strip()}")
             return False
-        except (OSError, IOError, UnicodeDecodeError) as e:
+        except (OSError, UnicodeDecodeError) as e:
             print(f"✗ 错误: {e}")
             return False
 
@@ -209,7 +192,7 @@ class CoverExtractor:
     """封面提取 - 从音频/视频文件提取嵌入的封面或海报图片"""
 
     @staticmethod
-    def _find_cover_stream(file_path: Path) -> Optional[int]:
+    def _find_cover_stream(file_path: Path) -> int | None:
         """查找封面/海报流（abs index），未找到返回 None"""
         cmd = [
             'ffprobe', '-v', 'quiet',
@@ -231,12 +214,12 @@ class CoverExtractor:
                         return stream.get('index')
                     if nb_frames == '1':
                         return stream.get('index')
-        except (OSError, IOError):
+        except OSError:
             pass
         return None
 
     @staticmethod
-    def extract(file_path: Path, output_path: Optional[Path] = None) -> bool:
+    def extract(file_path: Path, output_path: Path | None = None) -> bool:
         """提取封面/海报图片"""
         if not file_path.exists():
             print(f"错误: 文件不存在 {file_path}")
@@ -268,7 +251,7 @@ class CoverExtractor:
                 return True
             print(f"✗ 提取失败: {result.stderr.strip()}")
             return False
-        except (OSError, IOError, UnicodeDecodeError) as e:
+        except (OSError, UnicodeDecodeError) as e:
             print(f"✗ 错误: {e}")
             return False
 
@@ -281,9 +264,9 @@ class AsciiArtExporter:
     CHARS = " .:-=+*#%@"  # 由暗到亮 10 级
 
     @staticmethod
-    def export(video_path: Path, output_path: Optional[Path] = None,
+    def export(video_path: Path, output_path: Path | None = None,
                width: int = 80, fps: int = 10,
-               max_duration: Optional[float] = None) -> bool:
+               max_duration: float | None = None) -> bool:
         if not shutil.which('ffmpeg'):
             print("错误: 未安装 ffmpeg")
             return False
@@ -340,7 +323,7 @@ class AsciiArtExporter:
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(f"# ASCII 艺术动画 - {video_path.name}\n")
                 f.write(f"# 分辨率: {width}x{height} @ {fps}fps，共 {total_frames} 帧\n")
-                f.write(f"# 播放: 用 less/cat 查看静态帧；动画播放请用原视频\n\n")
+                f.write("# 播放: 用 less/cat 查看静态帧；动画播放请用原视频\n\n")
                 for i, frame in enumerate(frames_text):
                     f.write(f"--- 帧 {i + 1}/{total_frames} ---\n")
                     f.write(frame)
@@ -349,7 +332,7 @@ class AsciiArtExporter:
             print(f"✓ 已导出 {total_frames} 帧到 {output_path.name}")
             print(f"  文件大小: {MediaInfo.format_size(output_path.stat().st_size)}")
             return True
-        except (OSError, IOError, UnicodeDecodeError) as e:
+        except (OSError, UnicodeDecodeError) as e:
             print(f"✗ 错误: {e}")
             return False
 
