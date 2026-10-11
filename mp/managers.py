@@ -27,7 +27,11 @@ import unicodedata
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 
+import logging
+
 from mp.config import Config
+
+logger = logging.getLogger(__name__)
 from mp.constants import CONFIG_DIR, FAVORITES_FILE, HISTORY_FILE, RADIO_FILE
 
 class BookmarkManager:
