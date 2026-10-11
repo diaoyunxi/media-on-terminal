@@ -17,6 +17,9 @@ import random
 import json
 import hashlib
 import struct
+import logging
+
+logger = logging.getLogger(__name__)
 import zipfile
 import tempfile
 import base64
