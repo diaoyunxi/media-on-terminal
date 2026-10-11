@@ -27,7 +27,7 @@ import unicodedata
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 
-from mp.config import Config
+from mp.config import Config, logger
 from mp.constants import CONFIG_DIR, FAVORITES_FILE, HISTORY_FILE, RADIO_FILE
 
 class BookmarkManager:
