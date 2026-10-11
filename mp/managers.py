@@ -24,6 +24,8 @@ import urllib.request
 import urllib.error
 import urllib.parse
 import unicodedata
+import logging
+logger = logging.getLogger(__name__)
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 
