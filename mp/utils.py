@@ -173,7 +173,7 @@ def check_and_install_dependencies():
         install_system_dependencies()
         
         pip_args = get_pip_install_args()
-        cmd = [sys.executable, '-m', 'pip', 'install'] + pip_args + missing
+        cmd = [sys.executable, '-m', 'pip', 'install', *pip_args, *missing]
         
         try:
             subprocess.check_call(cmd, timeout=300)

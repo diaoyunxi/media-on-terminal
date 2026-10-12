@@ -339,7 +339,7 @@ class AudioMerger:
         cmd.extend([
             '-filter_complex', filter_complex,
             '-map', '[a]',
-        ] + fmt_args + [str(output_path)])
+        , *fmt_args, str(output_path)])
 
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)

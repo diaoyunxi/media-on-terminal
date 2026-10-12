@@ -515,7 +515,7 @@ class SubtitleExtractor:
             'ffmpeg', '-y', '-loglevel', 'warning',
             '-i', str(video_path),
             '-map', f'0:{abs_index}',
-        ] + codec_args + [str(output_path)]
+        , *codec_args, str(output_path)]
 
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
