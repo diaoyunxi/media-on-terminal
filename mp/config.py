@@ -117,9 +117,7 @@ class ConfigBackup:
             if file_count == 0:
                 print("✗ 配置目录为空，未创建备份")
                 if output_path.exists():
-                    if output_path.exists():
-
-                        output_path.unlink()
+                    output_path.unlink()
                 return False
             print(f"✓ 备份完成: {output_path.name}")
             print(f"  包含 {file_count} 个文件")

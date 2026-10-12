@@ -92,9 +92,7 @@ class GifConverter:
 
             # 清理调色板
             if palette_path.exists():
-                if palette_path.exists():
-
-                    palette_path.unlink()
+                palette_path.unlink()
 
             if r2.returncode == 0 and output_path.exists():
                 print(f"✓ 转换成功: {output_path.name}")
@@ -105,9 +103,7 @@ class GifConverter:
                 return False
         except Exception as e:
             if palette_path.exists():
-                if palette_path.exists():
-
-                    palette_path.unlink()
+                palette_path.unlink()
             print(f"✗ 错误: {e}")
             return False
 
