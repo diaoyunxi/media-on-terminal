@@ -173,7 +173,7 @@ class AudioPlayer:
                 return
 
             print(f"  正在搜索 '{keyword}' ...")
-            status, candidates, used = self.lyrics.manual_search_candidates(keyword)
+            status, candidates, _ = self.lyrics.manual_search_candidates(keyword)
             if status != "ok" or not candidates:
                 print(f"  未找到结果（{status}）")
                 print("  提示：可尝试简化关键词，如只输入歌名")

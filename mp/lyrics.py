@@ -534,7 +534,7 @@ class OnlineLyricsFetcher:
 
     def _fetch_lyric_by_candidate(self, candidate: Tuple[str, str, str, str]) -> str:
         """根据候选获取歌词文本"""
-        name, artist, source, ident = candidate
+        _, _, source, ident = candidate
         try:
             if source == "qq":
                 return self._qq_lyric(ident)
@@ -776,7 +776,7 @@ class OnlineLyricsFetcher:
         返回:
             URL 字符串，失败返回 None
         """
-        name, artist, source, ident = candidate
+        _, _, source, ident = candidate
         try:
             if source == "qq":
                 return self._qq_song_url(ident)

@@ -204,7 +204,7 @@ def download_song_interactive(config: 'Config', keyword: str, output_dir: str = 
 
     def _download_lyrics_for(candidate: Tuple[str, str, str, str], save_dir: Path) -> Optional[Path]:
         """下载候选歌曲的歌词"""
-        name, artist, source, ident = candidate
+        _, _, source, ident = candidate
         safe_name = _safe_filename(f"{name} - {artist or '未知'}")
         lrc_path = save_dir / f"{safe_name}.lrc"
         try:
