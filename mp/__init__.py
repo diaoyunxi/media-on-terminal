@@ -19,7 +19,6 @@ from mp.constants import (
 )
 
 from mp.utils import (
-    _display_width, _truncate_to_width,
     get_pip_install_args, install_system_dependencies,
     check_and_install_dependencies, check_ffmpeg,
 )
