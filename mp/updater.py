@@ -42,6 +42,21 @@ def _github_url(url: str) -> str:
     return f"{_GITHUB_MIRROR}/{url}"
 
 
+def _safe_urlopen(req, timeout=10):
+    """安全的 urlopen 封装：仅允许 https/http scheme，防止 file:// 等协议滥用 (CWE-22, S310)
+
+    :param req: urllib.request.Request 对象或 URL 字符串
+    :param timeout: 超时秒数
+    :raises ValueError: URL scheme 不是 http 或 https
+    """
+    import urllib.parse
+    url = req.full_url if hasattr(req, 'full_url') else str(req)
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ('http', 'https'):
+        raise ValueError(f"拒绝非 HTTP(S) URL scheme: {parsed.scheme!r} (仅允许 http/https)")
+    return urllib.request.urlopen(req, timeout=timeout)  # noqa: S310
+
+
 
 def _fetch_latest_version_github():
     """从 GitHub 获取最新版本号及 Release 信息（优先 Releases，回退 Tags）
@@ -89,7 +104,7 @@ def _fetch_latest_version_github():
     try:
         url = _github_url(f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest")
         req = urllib.request.Request(url, headers={"User-Agent": "mp-player"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with _safe_urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
             tag = data.get("tag_name")
             html_url = _github_url(data.get("html_url", ""))
@@ -110,7 +125,7 @@ def _fetch_latest_version_github():
         try:
             url = _github_url(f"https://api.github.com/repos/{GITHUB_REPO}/tags")
             req = urllib.request.Request(url, headers={"User-Agent": "mp-player"})
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with _safe_urlopen(req, timeout=10) as resp:
                 data = json.loads(resp.read().decode())
                 if data:
                     tag = data[0].get("name")
@@ -257,7 +272,7 @@ def _verify_download_sha256(content, checksum_url, asset_name=""):
     """
     try:
         req = urllib.request.Request(checksum_url, headers={"User-Agent": "mp-player"})
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with _safe_urlopen(req, timeout=15) as resp:
             checksum_data = resp.read().decode('utf-8', errors='replace').strip()
         # 计算实际内容的 SHA256
         actual_hash = hashlib.sha256(content).hexdigest()
@@ -492,7 +507,7 @@ def check_for_update(force: bool = False):
                     asset_name = releases_asset.get("name", "asset.zip")
                     print(f"  下载 {asset_name} ...")
                     req = urllib.request.Request(asset_url, headers={"User-Agent": "mp-player"})
-                    with urllib.request.urlopen(req, timeout=60) as resp:
+                    with _safe_urlopen(req, timeout=60) as resp:
                         content = resp.read()
                     # SHA256 完整性校验：尝试从 Release Assets 获取校验文件并验证（防篡改）
                     checksum_asset = None
@@ -532,7 +547,7 @@ def check_for_update(force: bool = False):
                 )
                 print(f"  下载 main 分支仓库 zip ...")
                 req = urllib.request.Request(codeload_url, headers={"User-Agent": "mp-player"})
-                with urllib.request.urlopen(req, timeout=60) as resp:
+                with _safe_urlopen(req, timeout=60) as resp:
                     content = resp.read()
                 # 写入临时 zip 文件，调用 _apply_zip_update 解压校验并替换整个包
                 with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
