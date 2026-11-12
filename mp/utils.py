@@ -34,74 +34,45 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 
 
-def _display_width(s: str) -> int:
-    """计算字符串在终端中的实际显示宽度
+def _char_display_width(ch: str) -> int:
+    """返回单个字符常用的终端显示宽度。
 
-    emoji 和宽字符（中日韩全角）算 2 列，ASCII 算 1 列。
-    用于解决含 emoji 的状态行被 [:term_width] 按字符数截断后，
-    实际显示宽度仍超过终端宽度导致自动换行的问题。
-
-    修正：对 Block Elements (U+2580-U+259F)、Geometric Shapes (U+25A0-U+25FF)、
-    Miscellaneous Technical (U+2300-U+23FF)、Miscellaneous Symbols (U+2600-U+26FF)、
-    Dingbats (U+2700-U+27BF) 等终端常显示为双宽的符号统一按 2 列计算；
-    变体选择器 (U+FE00-U+FE0F) 按 0 列计算，避免 emoji+变体组合宽度多算。
+    方块和制表符在主流终端中占 1 列，不能因 East Asian Width 为
+    ``A``（宽度模糊）就按 2 列计算，否则进度条宽度及填充都会出错。
     """
-    width = 0
-    for ch in s:
-        code = ord(ch)
-        if code < 0x80:
-            width += 1
-        elif 0xFE00 <= code <= 0xFE0F:
-            # 变体选择器，零宽
-            width += 0
-        elif code < 0x3000:
-            w = unicodedata.east_asian_width(ch)
-            # 全角(W)、全宽(F)、模糊(A)
-            if w in ('W', 'F', 'A'):
-                width += 2
-            elif 0x2580 <= code <= 0x259F or 0x25A0 <= code <= 0x25FF:
-                # Block Elements 和 Geometric Shapes
-                width += 2
-            elif (0x2300 <= code <= 0x23FF or
-                  0x2600 <= code <= 0x26FF or
-                  0x2700 <= code <= 0x27BF):
-                # Miscellaneous Technical / Symbols / Dingbats
-                # 包含 ⏸ ⏹ ⏺ ⏏ ⚡ ★ ✨ ❤ 等常用 emoji
-                width += 2
-            else:
-                width += 1
-        else:
-            # CJK 区段、emoji 等按 2 列处理
-            width += 2
-    return width
+    code = ord(ch)
+    if code < 0x80:
+        return 1
+    if 0xFE00 <= code <= 0xFE0F or unicodedata.combining(ch):
+        return 0
+    if 0x2500 <= code <= 0x259F:
+        # Box Drawing (U+2500-U+257F) 和 Block Elements (U+2580-U+259F)
+        return 1
+    if unicodedata.east_asian_width(ch) in ('W', 'F'):
+        return 2
+    if code < 0x3000:
+        if (0x25A0 <= code <= 0x25FF or 0x2300 <= code <= 0x23FF or
+                0x2600 <= code <= 0x26FF or 0x2700 <= code <= 0x27BF):
+            # 常用图形符号和 emoji
+            return 2
+        return 1
+    # CJK 区段、emoji 等按 2 列处理
+    return 2
 
 
+def _display_width(s: str) -> int:
+    """计算字符串在终端中的常用显示宽度，忽略 ANSI 转义序列。"""
+    # 状态行的 ANSI 颜色码不占终端列宽。
+    s = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', s)
+    return sum(_char_display_width(ch) for ch in s)
 
 
 def _truncate_to_width(s: str, max_width: int) -> str:
-    """按显示宽度截断字符串，保证截断后实际显示宽度 <= max_width"""
+    """按显示宽度截断纯文本，保证截断后显示宽度不超过 max_width。"""
     width = 0
     result = []
     for ch in s:
-        code = ord(ch)
-        if code < 0x80:
-            ch_w = 1
-        elif 0xFE00 <= code <= 0xFE0F:
-            ch_w = 0
-        elif code < 0x3000:
-            w = unicodedata.east_asian_width(ch)
-            if w in ('W', 'F', 'A'):
-                ch_w = 2
-            elif 0x2580 <= code <= 0x259F or 0x25A0 <= code <= 0x25FF:
-                ch_w = 2
-            elif (0x2300 <= code <= 0x23FF or
-                  0x2600 <= code <= 0x26FF or
-                  0x2700 <= code <= 0x27BF):
-                ch_w = 2
-            else:
-                ch_w = 1
-        else:
-            ch_w = 2
+        ch_w = _char_display_width(ch)
         if width + ch_w > max_width:
             break
         result.append(ch)
