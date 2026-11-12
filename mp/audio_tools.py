@@ -25,6 +25,7 @@ import urllib.error
 import urllib.parse
 import unicodedata
 from pathlib import Path
+from typing import ClassVar
 from typing import List, Optional, Dict, Any, Tuple
 from mp.media_info import MediaInfo
 from mp.effects import AudioConverter
@@ -33,7 +34,7 @@ from mp.effects import AudioConverter
 class AudioRecorder:
     """音频录制器 - 从麦克风录制音频"""
 
-    SUPPORTED_FORMATS = {
+    SUPPORTED_FORMATS: ClassVar[dict] = {
         '.wav': ['-c:a', 'pcm_s16le'],
         '.mp3': ['-c:a', 'libmp3lame', '-b:a', '192k'],
         '.ogg': ['-c:a', 'libvorbis', '-b:a', '192k'],
@@ -139,7 +140,7 @@ class AudioRecorder:
 class AudioExtractor:
     """音频提取器 - 从视频文件提取音轨"""
 
-    SUPPORTED_FORMATS = {
+    SUPPORTED_FORMATS: ClassVar[dict] = {
         '.mp3': ['-c:a', 'libmp3lame', '-b:a', '192k'],
         '.wav': ['-c:a', 'pcm_s16le'],
         '.ogg': ['-c:a', 'libvorbis', '-b:a', '192k'],
@@ -149,7 +150,7 @@ class AudioExtractor:
         '.opus': ['-c:a', 'libopus', '-b:a', '128k'],
     }
 
-    VIDEO_EXTENSIONS = {'.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v'}
+    VIDEO_EXTENSIONS: ClassVar[set] = {'.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v'}
 
     @staticmethod
     def extract(video_path: Path, output_format: str = 'mp3',
