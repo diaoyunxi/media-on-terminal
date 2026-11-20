@@ -92,16 +92,12 @@ class MetadataEditor:
                 return True
             else:
                 if temp_path.exists():
-                    if temp_path.exists():
-
-                        temp_path.unlink()
+                    temp_path.unlink()
                 print(f"设置标签失败: {result.stderr}")
                 return False
         except Exception as e:
             if temp_path.exists():
-                if temp_path.exists():
-
-                    temp_path.unlink()
+                temp_path.unlink()
             print(f"错误: {e}")
             return False
 
