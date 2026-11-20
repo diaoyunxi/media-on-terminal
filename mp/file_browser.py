@@ -244,7 +244,7 @@ class FileBrowser:
 
     def _run_windows(self) -> List[Path]:
         import msvcrt
- _max_iter = 1000000  # Safety limit
+        _max_iter = 1000000  # Safety limit
 
         while True:
             self._render()
