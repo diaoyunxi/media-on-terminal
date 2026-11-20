@@ -1173,7 +1173,7 @@ def _dispatch_commands(args):
                 src_label = src_name_map.get(source, source)
 
             out_path.write_text(lrc, encoding='utf-8')
-            line_count = len([l for l in lrc.split('\n') if l.strip()])
+            line_count = len([line for line in lrc.split('\n') if line.strip()])
             print(f"\n已保存歌词到: {out_path}")
             print(f"来源: {src_label}")
             print(f"行数: {line_count}")
