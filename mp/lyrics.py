@@ -394,7 +394,7 @@ class OnlineLyricsFetcher:
             return False
         # 统计有效歌词行数（有时间轴且非空文本）
         lines = re.findall(r"\[\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?\](.+)", lrc)
-        valid_lines = [l for l in (s.strip() for s in lines) if l]
+        valid_lines = [line for line in (s.strip() for s in lines) if line]
         return len(valid_lines) >= 3
 
     @staticmethod
@@ -646,7 +646,7 @@ class OnlineLyricsFetcher:
                 continue
             # 统计有效歌词行数
             lines = re.findall(r"\[\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?\](.+)", lrc)
-            valid = [l for l in (s.strip() for s in lines) if l]
+            valid = [line for line in (s.strip() for s in lines) if line]
             n = len(valid)
             # 首个有效候选先记录
             if best_lrc is None:
