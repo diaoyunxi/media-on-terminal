@@ -12,8 +12,9 @@ from typing import Optional
 import logging
 from mp.constants import CONFIG_DIR, CONFIG_FILE
 
-logger = logging.getLogger(__name__)
 from mp.media_info import MediaInfo
+
+logger = logging.getLogger(__name__)
 
 
 class Config:
