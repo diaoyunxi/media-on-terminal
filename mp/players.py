@@ -91,6 +91,8 @@ class AudioPlayer:
         # 终端显示状态：跟踪上次输出的行数，用于精确清除避免残留
         self._last_display_lines = 0
         self._last_term_width = 0  # 上次终端宽度，用于检测窗口大小变化
+        self._last_progress_width = 0  # 传统 Windows 控制台清行时使用
+        self._ansi_supported = None  # 首次输出时检测，不在非 TTY 中发送转义序列
         
         self.load_audio()
     
@@ -321,39 +323,77 @@ class AudioPlayer:
                 print()
                 break
 
+    def _use_ansi(self):
+        """检测终端是否支持光标控制，并在 Windows 上主动启用 VT 模式。"""
+        cached = getattr(self, '_ansi_supported', None)
+        if cached is not None:
+            return cached
+
+        supported = False
+        try:
+            if sys.stdout.isatty():
+                if os.name != 'nt':
+                    supported = os.environ.get('TERM', '') != 'dumb'
+                else:
+                    # Windows 10+ 的 cmd.exe 默认未必开启 VT；不启用时，
+                    # \033[2K 会被当作普通字符，无法清除上一帧。
+                    import ctypes
+                    import msvcrt
+
+                    kernel32 = ctypes.windll.kernel32
+                    kernel32.GetConsoleMode.argtypes = [
+                        ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint)
+                    ]
+                    kernel32.SetConsoleMode.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+                    handle = msvcrt.get_osfhandle(sys.stdout.fileno())
+                    mode = ctypes.c_uint()
+                    if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+                        ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+                        supported = bool(
+                            mode.value & ENABLE_VIRTUAL_TERMINAL_PROCESSING or
+                            kernel32.SetConsoleMode(
+                                handle, mode.value | ENABLE_VIRTUAL_TERMINAL_PROCESSING
+                            )
+                        )
+        except (AttributeError, ImportError, OSError, TypeError, ValueError):
+            supported = False
+
+        self._ansi_supported = supported
+        return supported
+
     def _clear_progress_display(self):
-        """清除当前进度显示区域，使光标回到第一行位置。
-        适配 display_progress 的多行输出格式（最后一行也换行，光标在下一行行首）。
-        """
+        """清除进度显示区域；单行刷新绝不写入换行符。"""
         n = self._last_display_lines
         if n <= 0:
             return
-        # 单行输出时 display_progress 不换行，光标停在当前行末尾，不能上移
+
+        use_ansi = self._use_ansi()
         if n == 1:
-            sys.stdout.write("\r\033[2K")
-            sys.stdout.write("\033[J")
-            sys.stdout.flush()
-            self._last_display_lines = 0
-            return
-        # 多行输出时最后一行也换行了，光标在最后一行的下一行行首，上移 n 行到第一行行首
-        sys.stdout.write(f"\033[{n}A")
-        for i in range(n):
-            sys.stdout.write("\r\033[2K")
-            if i < n - 1:
-                sys.stdout.write("\033[1B")
-        # 清除完毕后光标在第 n 行行首，上移回第 1 行
-        sys.stdout.write(f"\033[{n - 1}A")
-        sys.stdout.write("\033[J")
+            sys.stdout.write("\r")
+            if use_ansi:
+                sys.stdout.write("\033[2K\033[J")
+            else:
+                # 传统 Windows 控制台不支持 ANSI。只擦除上一帧的实际宽度，
+                # 不能按整个终端宽度补空格，否则写到行尾会自动换行。
+                previous_width = getattr(self, '_last_progress_width', 0)
+                safe_width = max(0, self._last_term_width - 1)
+                sys.stdout.write(' ' * min(previous_width, safe_width))
+                sys.stdout.write("\r")
+        elif use_ansi:
+            # 多行输出的最后一行也换行了，光标位于其下一行行首。
+            sys.stdout.write(f"\033[{n}A")
+            for i in range(n):
+                sys.stdout.write("\r\033[2K")
+                if i < n - 1:
+                    sys.stdout.write("\033[1B")
+            sys.stdout.write(f"\033[{n - 1}A\033[J")
+
         sys.stdout.flush()
         self._last_display_lines = 0
+        self._last_progress_width = 0
 
     def display_progress(self):
-        """显示播放进度条"""
-        bar_length = 50
-        percent = self.current_position / self.total_duration if self.total_duration > 0 else 0
-        filled = int(bar_length * percent)
-        bar = '█' * filled + '─' * (bar_length - filled)
-        
+        """在固定位置刷新播放进度，不为每一帧追加新行。"""
         current_time = self.format_time(self.current_position)
         total_time = self.format_time(self.total_duration)
         
@@ -428,50 +468,48 @@ class AudioPlayer:
         except Exception:
             term_width = 80  # 非 TTY 环境回退到 80 列
 
-        # 检测终端宽度变化：如果窗口大小变了，之前记录的行数不可靠，
-        # 需要清除所有旧行并重置计数
-        if self._last_term_width != 0 and self._last_term_width != term_width:
-            n = self._last_display_lines
-            if n > 0:
-                if n > 1:
-                    sys.stdout.write(f"\033[{n - 1}A")
-                for i in range(n):
-                    sys.stdout.write("\r\033[2K")
-                    if i < n - 1:
-                        sys.stdout.write("\033[1B")
-                sys.stdout.write("\r")
-                sys.stdout.flush()
-            self._last_display_lines = 0
+        previous_term_width = self._last_term_width
+        # 清行空格数必须按新宽度封顶，避免窗口缩小后擦除操作自身换行。
         self._last_term_width = term_width
+        if previous_term_width not in (0, term_width):
+            self._clear_progress_display()
+        use_ansi = self._use_ansi()
 
-        # 动态调整 bar 长度，保证整行显示宽度不超过 term_width
-        # 注意：█ / ─ 等方块字符显示宽度为 2 列，所以 bar_length 是字符数，
-        # 实际显示宽度 = bar_length * 2，必须用 available_for_bar // 2 来计算字符数
+        # 预留一列，避免 Windows 控制台在行尾写入时提前自动换行。
+        safe_width = max(1, term_width - 1)
         prefix = f"{status} |"
         suffix = f"| {current_time}/{total_time}"
-        prefix_w = _display_width(prefix)
         suffix_w = _display_width(suffix)
-        # bar 可用显示宽度（列），至少留 10 列给进度条
-        available_for_bar = term_width - prefix_w - suffix_w
-        # bar 字符数 = 可用列数 // 2（每个方块字符占 2 列），最少 5 格，最多 60 格
-        bar_length = max(5, min(60, available_for_bar // 2))
+        bar_cell_width = max(1, _display_width('█'), _display_width('─'))
+        min_bar_length = 5
+
+        # 时间后缀始终完整保留。空间不足时先缩短状态文本，再缩短进度条，
+        # 绝不能对整行直接截断（那会把总时长的最后一位截掉）。
+        required_width = (
+            _display_width(prefix) + suffix_w + min_bar_length * bar_cell_width
+        )
+        if required_width > safe_width:
+            prefix_budget = max(
+                0, safe_width - suffix_w - min_bar_length * bar_cell_width
+            )
+            prefix = _truncate_to_width(prefix, prefix_budget)
+
+        available_for_bar = max(
+            0, safe_width - _display_width(prefix) - suffix_w
+        )
+        bar_length = min(60, available_for_bar // bar_cell_width)
         percent = self.current_position / self.total_duration if self.total_duration > 0 else 0
-        filled = int(bar_length * percent)
-        bar = '█' * filled + '─' * (bar_length - filled)
-        line1 = f"{prefix}{bar}{suffix}"
-        # 二次校验：如果实际显示宽度仍超限，再逐格缩短 bar
-        while bar_length > 3 and _display_width(line1) > term_width - 2:
-            bar_length -= 1
+        percent = max(0.0, min(1.0, percent))
+
+        while True:
             filled = int(bar_length * percent)
             bar = '█' * filled + '─' * (bar_length - filled)
             line1 = f"{prefix}{bar}{suffix}"
+            if bar_length == 0 or _display_width(line1) <= safe_width:
+                break
+            bar_length -= 1
 
-        # 收集本次要输出的所有行（按显示宽度截断，避免自动换行导致行数错乱）
-        # 关键：每行截断到 term_width - 3，留 3 列余量，防止内容恰好填满一行时
-        # 某些终端自动换行（光标到行尾再写下一字符会换行）
-        # 同时给 _display_width 的估算误差留出裕量
-        safe_width = max(10, term_width - 3)
-        lines = [_truncate_to_width(line1, safe_width)]
+        lines = [line1]
 
         # 可视化器频谱
         if self.visualizer_enabled:
@@ -491,32 +529,28 @@ class AudioPlayer:
                 padding = max(0, (safe_width - lyric_w) // 2)
                 lines.append(' ' * padding + f"\033[1;36m{truncated}\033[0m")
 
-        # 清除上次输出的所有行（避免终端残留）
-        # 关键：必须确保每行实际显示宽度 <= term_width，否则自动换行会让行数对不上
+        # 无 ANSI 的传统控制台只显示单行状态栏。多行区域无法可靠上移，
+        # 若继续逐帧换行输出，就会重新出现进度历史刷屏。
+        if len(lines) > 1 and not use_ansi:
+            lines = lines[:1]
+
         self._clear_progress_display()
 
-        # 单行情况：使用 \r 强制回到行首 + 空格填充覆盖旧内容，最可靠
         if len(lines) == 1:
-            output = f"\r{lines[0]}"
-            sys.stdout.write(output)
-            # 用空格填充到 term_width，确保旧内容被完全覆盖
-            line_w = _display_width(lines[0])
-            if line_w < term_width:
-                sys.stdout.write(' ' * (term_width - line_w))
-            sys.stdout.write("\033[K")  # 清除行尾
+            # \r 回到本行行首；清行在 _clear_progress_display 中完成。
+            # 不写 \n，也不补满终端宽度，确保下一帧仍覆盖同一行。
+            sys.stdout.write(f"\r{lines[0]}")
             sys.stdout.flush()
             self._last_display_lines = 1
+            self._last_progress_width = _display_width(lines[0])
             return
 
-        # 多行情况：每行输出后换行，最后一行也换行（光标停在最后一行的下一行行首）
-        # 这样下次刷新时，光标位置 = 上次输出最后一行的下一行，上移 n-1 行即回到第一行
-        for i, line in enumerate(lines):
-            sys.stdout.write(line)
-            sys.stdout.write("\033[K\n")  # 清除行尾 + 换行（最后一行也换行）
+        # 多行情况：每行输出后换行，最后一行也换行（光标停在下一行行首）。
+        for line in lines:
+            sys.stdout.write(f"{line}\033[K\n")
         sys.stdout.flush()
-
-        # 记录本次行数，供下次清除
         self._last_display_lines = len(lines)
+        self._last_progress_width = 0
     
     def format_time(self, ms):
         """格式化时间显示"""
